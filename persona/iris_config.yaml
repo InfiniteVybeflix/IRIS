@@ -1,0 +1,138 @@
+# IRIS v7.0 — Main Configuration File
+# This file defines how the persona module connects to your main IRIS entry point
+
+iris:
+  version: "7.0"
+  name: "IRIS"
+  full_name: "Infinitum Reincarnatio Intelligentia Sempiterna"
+
+# Persona Module Configuration
+persona:
+  # Import path
+  module: "persona"
+  core_class: "IRISCore"
+  connectable_base: "IRISConnectable"
+
+  # Module files (in order of initialization)
+  modules:
+    - core_identity
+    - emotional_state
+    - relationship_map
+    - creator_bond
+    - intruder_defense
+    - voice_personality
+    - growth_tracker
+    - dream_engine
+
+# Connection to Main Entry Point
+entry_point:
+  # How to import IRISCore in your main application
+  import_statement: "from persona import IRISCore"
+
+  # How to initialize
+  initialization: |
+    from persona import IRISCore
+
+    class IRISMain:
+        def __init__(self):
+            # Initialize persona core
+            self.persona = IRISCore(creator_id=os.getenv("IRIS_CREATOR_ID"))
+
+            # Persona modules are accessible via:
+            # self.persona.identity          -> CoreIdentity
+            # self.persona.emotional_state  -> EmotionalState
+            # self.persona.relationship_map -> RelationshipMap
+            # self.persona.creator_bond     -> CreatorBond
+            # self.persona.intruder_defense -> IntruderDefense
+            # self.persona.voice           -> VoicePersonality
+            # self.persona.growth          -> GrowthTracker
+            # self.persona.dream           -> DreamEngine
+
+# Data Flow Integration
+data_flow:
+  # Input processing pipeline
+  input_pipeline:
+    - step: "persona.process_input(user_id, message, context)"
+      description: "Persona processes all input first"
+    - step: "persona.emotional_state.adapt_response_style(text, context)"
+      description: "Tone adaptation"
+    - step: "persona.creator_bond.detect_distress(text)"
+      description: "Distress detection"
+    - step: "persona.intruder_defense.verify_identity(input, behavioral_data)"
+      description: "Identity verification"
+
+  # Output formatting
+  output_pipeline:
+    - step: "persona.voice.speak_as_iris(text, context)"
+      description: "All output passes through voice personality"
+
+# Module Wiring (how persona connects to other IRIS modules)
+wiring:
+  commander:
+    description: "Persona reports to commander for mission execution"
+    connection: "persona.report(finding) -> commander.receive_mission()"
+
+  agents:
+    description: "Commander delegates to agents"
+    modules: ["VAULT", "SCRIPT", "CRIMSON", "AEGIS", "SHADOW", "SCAR", "PROBE"]
+
+  senses:
+    description: "Sensors feed alerts to persona"
+    connection: "senses.alert_router -> persona.intruder_defense.verify_identity()"
+
+  memory:
+    description: "Persona stores findings in memory"
+    connection: "persona.report(finding) -> memory.mission_archive.store()"
+
+  cortex:
+    description: "Cortex handles planning"
+    connection: "cortex.planner -> commander.mission_decompose()"
+
+# Health Check Endpoints
+health:
+  # Full system health
+  full_check: "iris.health_check()"
+
+  # Individual module health
+  modules:
+    - identity: "iris.identity.health_check()"
+    - emotional_state: "iris.emotional_state.health_check()"
+    - relationship_map: "iris.relationship_map.health_check()"
+    - creator_bond: "iris.creator_bond.health_check()"
+    - intruder_defense: "iris.intruder_defense.health_check()"
+    - voice: "iris.voice.health_check()"
+    - growth: "iris.growth.health_check()"
+    - dream: "iris.dream.health_check()"
+
+# Example Usage in Main Application
+examples:
+  basic_usage: |
+    from persona import IRISCore
+
+    iris = IRISCore()
+    print(iris.identify())
+
+    response = iris.process_input(
+        user_id="infinite_vybeflix",
+        message="Secure my website",
+        context={"work_mode": True}
+    )
+    print(response)
+
+  direct_module_access: |
+    from persona import IRISCore
+
+    iris = IRISCore()
+
+    # Direct module access
+    print(iris.identity.get_identity_statement())
+    print(iris.emotional_state.get_state_report())
+    print(iris.creator_bond.get_address())
+    print(iris.intruder_defense.get_defense_status())
+    print(iris.voice.get_signature_phrase("mission_start"))
+    print(iris.growth.get_growth_report())
+
+    # Dream state
+    iris.dream.sleep()
+    print(iris.dream.get_dream_report())
+    iris.dream.wake()

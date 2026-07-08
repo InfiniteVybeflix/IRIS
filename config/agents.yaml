@@ -1,0 +1,267 @@
+# IRIS v7.0 — Agent Configuration Manifest
+# Aevibron Agent Corps — 29 Agents
+
+version: "7.0.0"
+total_agents: 29
+
+agents:
+  # V1 — Foundation (6 agents)
+  - codename: VAULT
+    file: architect.py
+    class: Architect
+    domain: software_engineering
+    description: System design, architecture diagrams, DB schema, API design, Terraform, security review
+
+  - codename: SCRIPT
+    file: code_sage.py
+    class: CodeSage
+    domain: software_engineering
+    description: Code generation in 30+ languages, code review, refactoring, debugging, test generation, CI/CD
+
+  - codename: PROBE
+    file: test_oracle.py
+    class: TestOracle
+    domain: software_engineering
+    description: AST-based test generation, coverage analysis, mutation testing, fuzzing, SAST
+
+  - codename: PIPE
+    file: devops_maven.py
+    class: DevOpsMaven
+    domain: infrastructure
+    description: Docker, K8s, CI/CD pipelines, Terraform, monitoring, Helm, Nginx/Traefik
+
+  - codename: SHADOW
+    file: recon_ghost.py
+    class: ReconGhost
+    domain: cyber_security
+    description: Subdomain enum, tech fingerprinting, DNS/WHOIS, OSINT, port scanning, SSL analysis
+
+  - codename: SCAR
+    file: vuln_hunter.py
+    class: VulnHunter
+    domain: cyber_security
+    description: SQLi, XSS, CSRF, SSRF, LFI/RFI, command injection, XXE, IDOR, security headers
+
+  # V2 — Advanced (9 agents)
+  - codename: CRIMSON
+    file: red_specter.py
+    class: RedSpecter
+    domain: cyber_security
+    description: MITRE ATT&CK TTPs, attack chains, lateral movement, persistence, exfiltration
+
+  - codename: AEGIS
+    file: blue_sentinel.py
+    class: BlueSentinel
+    domain: cyber_security
+    description: Real-time monitoring, SIEM rules, anomaly detection, incident response, honeypot
+
+  - codename: SCALE
+    file: purple_judge.py
+    class: PurpleJudge
+    domain: cyber_security
+    description: Purple team exercise orchestration, detection gap analysis, MTTD/MTTR scoring
+
+  - codename: TRACE
+    file: forensics_wraith.py
+    class: ForensicsWraith
+    domain: cyber_security
+    description: Memory dump analysis, disk forensics, PCAP analysis, timeline reconstruction
+
+  - codename: OMEN
+    file: threat_prophet.py
+    class: ThreatProphet
+    domain: cyber_security
+    description: CVE monitoring, threat intel feeds, IOC matching, MITRE mapping, predictive scoring
+
+  - codename: NEBULA
+    file: cloud_ranger.py
+    class: CloudRanger
+    domain: infrastructure
+    description: AWS/Azure/GCP security, container registry scanning, compliance mapping
+
+  - codename: SHELL
+    file: container_guard.py
+    class: ContainerGuard
+    domain: infrastructure
+    description: Dockerfile review, image scanning, K8s RBAC audit, runtime threat detection
+
+  - codename: WEB
+    file: net_weaver.py
+    class: NetWeaver
+    domain: infrastructure
+    description: SSL monitoring, DNS management, network design, traffic analysis, VPN config
+
+  - codename: CORE
+    file: sys_overlord.py
+    class: SysOverlord
+    domain: infrastructure
+    description: File operations, process management, system maintenance, backup automation
+
+  # V3 — Intelligence & Operations (9 agents)
+  - codename: CRUCIBLE
+    file: data_alchemist.py
+    class: DataAlchemist
+    domain: intelligence
+    description: Web scraping, entity extraction, data cleaning, API integration, price tracking
+
+  - codename: SAGE
+    file: research_scholar.py
+    class: ResearchScholar
+    domain: intelligence
+    description: Literature review, tech comparison, PoC generation, arXiv analysis, patent search
+
+  - codename: QUILL
+    file: doc_scribe.py
+    class: DocScribe
+    domain: intelligence
+    description: Report generation, document export, auto-docs, presentations, changelogs
+
+  - codename: HERALD
+    file: email_herald.py
+    class: EmailHerald
+    domain: operations
+    description: HTML email templates, multi-provider SMTP, scheduling, delivery tracking, bounce handling
+
+  - codename: CANVAS
+    file: chart_artisan.py
+    class: ChartArtisan
+    domain: operations
+    description: Multi-chart dashboards, real-time streams, interactive charts, export, theming
+
+  - codename: ECHO
+    file: voice_herald.py
+    class: VoiceHerald
+    domain: operations
+    description: TTS, speech recognition, voice cloning, multi-language, wake word detection
+
+  - codename: GEAR
+    file: automation_forge.py
+    class: AutomationForge
+    domain: operations
+    description: Workflow DAG builder, triggers, conditional logic, retry/backoff, script generation
+
+  - codename: PORTAL
+    file: api_gateway.py
+    class: APIGateway
+    domain: infrastructure
+    description: Rate limiting, JWT/API key/OAuth2 auth, request/response transform, caching, proxy
+
+  - codename: ARCHIVE
+    file: database_sage.py
+    class: DatabaseSage
+    domain: infrastructure
+    description: Query optimization, schema migration, index recommendations, replication monitoring
+
+  # Additional Agents (5 agents)
+  - codename: GUARD
+    file: mobile_sentinel.py
+    class: MobileSentinel
+    domain: cyber_security
+    description: iOS/Android security, APK/IPA analysis, reverse engineering, Frida injection
+
+  - codename: CHAIN
+    file: blockchain_ledger.py
+    class: BlockchainLedger
+    domain: cyber_security
+    description: Solidity audit, transaction analysis, wallet security, ERC compliance, gas optimization
+
+  - codename: QBIT
+    file: quantum_seer.py
+    class: QuantumSeer
+    domain: cyber_security
+    description: Quantum-safe crypto assessment, PQC recommendations, QKD planning, migration roadmap
+
+  - codename: TENSOR
+    file: ml_engineer.py
+    class: MLEngineer
+    domain: intelligence
+    description: Model training, hyperparameter tuning, MLOps pipelines, ONNX export, drift detection
+
+  - codename: PIXEL
+    file: ui_visionary.py
+    class: UIVisionary
+    domain: intelligence
+    description: HTML/CSS/JS generation, React/Vue components, accessibility audit, design tokens
+
+# Domain mapping for Commander decomposition
+domains:
+  software_engineering:
+    agents: [VAULT, SCRIPT, PROBE, PIPE]
+    keywords:
+      - code
+      - program
+      - software
+      - architecture
+      - design
+      - api
+      - database
+      - test
+      - deploy
+      - docker
+      - kubernetes
+
+  cyber_security:
+    agents: [SHADOW, SCAR, CRIMSON, AEGIS, SCALE, TRACE, OMEN, GUARD, CHAIN, QBIT]
+    keywords:
+      - scan
+      - vulnerability
+      - exploit
+      - penetration
+      - security
+      - threat
+      - malware
+      - forensics
+      - incident
+      - audit
+      - blockchain
+      - quantum
+      - mobile
+
+  infrastructure:
+    agents: [NEBULA, SHELL, WEB, CORE, PORTAL, ARCHIVE]
+    keywords:
+      - cloud
+      - aws
+      - azure
+      - gcp
+      - container
+      - kubernetes
+      - network
+      - dns
+      - ssl
+      - system
+      - database
+      - api
+      - gateway
+
+  intelligence:
+    agents: [CRUCIBLE, SAGE, QUILL, TENSOR, PIXEL]
+    keywords:
+      - scrape
+      - data
+      - research
+      - analyze
+      - document
+      - report
+      - visualization
+      - chart
+      - ml
+      - model
+      - train
+      - ui
+      - frontend
+
+  operations:
+    agents: [HERALD, CANVAS, ECHO, GEAR]
+    keywords:
+      - email
+      - alert
+      - notify
+      - visualization
+      - chart
+      - voice
+      - speech
+      - automation
+      - workflow
+      - schedule
+      - trigger
