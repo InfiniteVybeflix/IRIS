@@ -1,4 +1,4 @@
-"""IRIS v9 Consciousness Engine — Jarvis-Level Self-Awareness"""
+"""IRIS v9 Hybrid Consciousness Engine — Jarvis-Level Self-Awareness"""
 import os
 import json
 import random

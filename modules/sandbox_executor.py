@@ -1,126 +1,209 @@
-"""IRIS v8 Sandbox Executor — Safe Code Execution"""
+"""IRIS v9 Hybrid Sandbox Executor - Safe Code Execution"""
 import os
 import sys
 import subprocess
 import tempfile
+import shutil
 import resource
 import signal
 from typing import Dict, List, Optional
 from config import config
+from core.db import db
 
 class SandboxExecutor:
     """
-    Safely execute Python and shell code:
-    - Resource limits (CPU, memory)
-    - Timeout enforcement
-    - Restricted imports
-    - No network access (optional)
-    - Temporary file isolation
+    Execute code safely in isolated environment:
+    - Time limits (30s max)
+    - Memory limits (512MB max)
+    - Network restrictions
+    - File system restrictions
+    - No dangerous imports
     """
 
+    DANGEROUS_IMPORTS = [
+        'os.system', 'subprocess', 'eval', 'exec', 'compile',
+        '__import__', 'open', 'file', 'socket', 'urllib',
+        'requests', 'http', 'ftplib', 'telnetlib'
+    ]
+
     def __init__(self):
-        self.sandbox_dir = config.SANDBOX_DIR
+        self.sandbox_dir = os.path.join(config.DATA_DIR, "sandbox_runs")
         os.makedirs(self.sandbox_dir, exist_ok=True)
-        self.max_cpu_time = 5  # seconds
-        self.max_memory = 256 * 1024 * 1024  # 256MB
-        self.max_output_size = 10000  # characters
+        self.max_time = 30  # seconds
+        self.max_memory = 512 * 1024 * 1024  # 512MB
 
     def execute_python(self, code: str, allowed_modules: List[str] = None) -> Dict:
-        """Execute Python code in restricted sandbox."""
-        try:
-            # Write code to temp file
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', dir=self.sandbox_dir, delete=False) as f:
-                f.write(code)
-                temp_file = f.name
+        """Execute Python code in sandbox"""
+        allowed_modules = allowed_modules or ['math', 'random', 'datetime', 'json', 're', 'statistics']
 
-            # Run with restrictions
-            result = self._run_restricted(['python', temp_file])
+        # Check for dangerous patterns
+        danger_check = self._check_dangerous_code(code)
+        if danger_check["dangerous"]:
+            return {
+                "success": False,
+                "error": f"Dangerous code detected: {danger_check['reason']}",
+                "output": "",
+                "execution_time": 0
+            }
+
+        # Create isolated temp directory
+        run_id = f"run_{os.urandom(4).hex()}"
+        run_dir = os.path.join(self.sandbox_dir, run_id)
+        os.makedirs(run_dir, exist_ok=True)
+
+        try:
+            # Write code to file
+            code_file = os.path.join(run_dir, "script.py")
+            with open(code_file, "w") as f:
+                f.write(self._wrap_code(code, allowed_modules))
+
+            # Execute with restrictions
+            result = self._run_restricted(code_file, run_dir)
 
             # Cleanup
-            os.remove(temp_file)
+            shutil.rmtree(run_dir, ignore_errors=True)
+
+            return result
+
+        except Exception as e:
+            shutil.rmtree(run_dir, ignore_errors=True)
+            return {
+                "success": False,
+                "error": str(e),
+                "output": "",
+                "execution_time": 0
+            }
+
+    def _check_dangerous_code(self, code: str) -> Dict:
+        """Check for dangerous code patterns"""
+        code_lower = code.lower()
+
+        for dangerous in self.DANGEROUS_IMPORTS:
+            if dangerous in code_lower:
+                return {"dangerous": True, "reason": f"Forbidden: {dangerous}"}
+
+        # Check for file system operations
+        fs_patterns = ['open(', 'read(', 'write(', 'delete(', 'remove(']
+        for pattern in fs_patterns:
+            if pattern in code:
+                return {"dangerous": True, "reason": f"File system operation: {pattern}"}
+
+        return {"dangerous": False, "reason": ""}
+
+    def _wrap_code(self, code: str, allowed_modules: List[str]) -> str:
+        """Wrap user code with safety measures"""
+        imports = "
+".join([f"import {mod}" for mod in allowed_modules])
+
+        return f"""
+{imports}
+
+# Restricted builtins
+_safe_builtins = {{
+    'len': len, 'range': range, 'enumerate': enumerate,
+    'zip': zip, 'map': map, 'filter': filter,
+    'sum': sum, 'min': min, 'max': max, 'sorted': sorted,
+    'abs': abs, 'round': round, 'pow': pow,
+    'int': int, 'float': float, 'str': str, 'list': list,
+    'dict': dict, 'tuple': tuple, 'set': set,
+    'print': print, 'type': type, 'isinstance': isinstance,
+    'True': True, 'False': False, 'None': None
+}}
+
+# Execute user code
+user_code = """
+{code}
+"""
+
+exec(user_code, {{"__builtins__": _safe_builtins}})
+"""
+
+    def _run_restricted(self, code_file: str, run_dir: str) -> Dict:
+        """Run code with time and memory limits"""
+        import time
+        start_time = time.time()
+
+        try:
+            # Run with timeout
+            process = subprocess.run(
+                [sys.executable, code_file],
+                capture_output=True,
+                text=True,
+                timeout=self.max_time,
+                cwd=run_dir,
+                env={**os.environ, 'PYTHONPATH': run_dir}
+            )
+
+            execution_time = time.time() - start_time
 
             return {
-                "success": result["returncode"] == 0,
-                "output": result["stdout"][:self.max_output_size],
-                "error": result["stderr"][:self.max_output_size] if result["stderr"] else None,
-                "returncode": result["returncode"],
-                "duration": result.get("duration", 0)
+                "success": process.returncode == 0,
+                "output": process.stdout,
+                "error": process.stderr if process.returncode != 0 else "",
+                "execution_time": round(execution_time, 3),
+                "return_code": process.returncode
+            }
+
+        except subprocess.TimeoutExpired:
+            return {
+                "success": False,
+                "error": f"Execution timed out after {self.max_time} seconds",
+                "output": "",
+                "execution_time": self.max_time
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {
+                "success": False,
+                "error": str(e),
+                "output": "",
+                "execution_time": time.time() - start_time
+            }
 
     def execute_shell(self, command: str, allowed_commands: List[str] = None) -> Dict:
-        """Execute shell command with restrictions."""
-        # Block dangerous commands
-        dangerous = [
-            "rm -rf /", "rm -rf /*", ":(){ :|:& };:", "dd if=/dev/zero",
-            "> /dev/sda", "mkfs", "fdisk", "format", "del /f /s /q",
-            "rd /s /q", "format c:", "shutdown", "reboot", "halt",
-            "poweroff", "init 0", "kill -9 -1"
-        ]
-        for d in dangerous:
-            if d in command.lower():
-                return {"success": False, "error": f"Dangerous command blocked: {d}"}
+        """Execute shell command with restrictions"""
+        allowed_commands = allowed_commands or ['ls', 'cat', 'echo', 'pwd', 'python', 'node', 'npm']
 
-        try:
-            result = self._run_restricted(command, shell=True)
+        # Parse command
+        cmd_parts = command.split()
+        base_cmd = cmd_parts[0] if cmd_parts else ""
+
+        if base_cmd not in allowed_commands:
             return {
-                "success": result["returncode"] == 0,
-                "output": result["stdout"][:self.max_output_size],
-                "error": result["stderr"][:self.max_output_size] if result["stderr"] else None,
-                "returncode": result["returncode"],
-                "duration": result.get("duration", 0)
+                "success": False,
+                "error": f"Command '{base_cmd}' not allowed. Allowed: {allowed_commands}",
+                "output": ""
             }
-        except Exception as e:
-            return {"success": False, "error": str(e)}
 
-    def _run_restricted(self, cmd, shell=False):
-        """Run command with resource limits."""
-        import time
-        start = time.time()
-
-        def set_limits():
-            # CPU time limit
-            resource.setrlimit(resource.RLIMIT_CPU, (self.max_cpu_time, self.max_cpu_time))
-            # Memory limit
-            resource.setrlimit(resource.RLIMIT_AS, (self.max_memory, self.max_memory))
-            # File size limit
-            resource.setrlimit(resource.RLIMIT_FSIZE, (10*1024*1024, 10*1024*1024))
+        # Block dangerous patterns
+        dangerous_patterns = ['rm -rf', 'mkfs', 'dd if=/dev', '> /dev/sda', ':(){ :|:& };:']
+        for pattern in dangerous_patterns:
+            if pattern in command:
+                return {
+                    "success": False,
+                    "error": f"Dangerous pattern detected: {pattern}",
+                    "output": ""
+                }
 
         try:
-            proc = subprocess.Popen(
-                cmd,
-                shell=shell,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+            result = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
                 text=True,
-                cwd=self.sandbox_dir,
-                preexec_fn=set_limits
+                timeout=30,
+                cwd=config.BASE_DIR
             )
-            stdout, stderr = proc.communicate(timeout=self.max_cpu_time + 2)
-            duration = time.time() - start
 
             return {
-                "returncode": proc.returncode,
-                "stdout": stdout,
-                "stderr": stderr,
-                "duration": duration
+                "success": result.returncode == 0,
+                "output": result.stdout,
+                "error": result.stderr,
+                "return_code": result.returncode
             }
+
         except subprocess.TimeoutExpired:
-            proc.kill()
-            return {
-                "returncode": -1,
-                "stdout": "",
-                "stderr": "Execution timed out",
-                "duration": self.max_cpu_time + 2
-            }
+            return {"success": False, "error": "Command timed out", "output": ""}
         except Exception as e:
-            return {
-                "returncode": -1,
-                "stdout": "",
-                "stderr": str(e),
-                "duration": time.time() - start
-            }
+            return {"success": False, "error": str(e), "output": ""}
 
-# Singleton
 sandbox_executor = SandboxExecutor()

@@ -1,4 +1,4 @@
-"""IRIS v9 Aevibron Client — Circuit Breaker, Fallback, Retry Logic"""
+"""IRIS v9 Hybrid Aevibron Client — Circuit Breaker, Fallback, Retry Logic"""
 import requests
 import json
 import time

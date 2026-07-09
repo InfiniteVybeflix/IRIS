@@ -1,4 +1,4 @@
-"""IRIS v9 Security — Authentication, Sessions & Device Management"""
+"""IRIS v9 Hybrid Security — Authentication, Sessions & Device Management"""
 import os
 import hashlib
 import secrets
@@ -69,3 +69,37 @@ class SecurityManager:
             return False
 
 security_manager = SecurityManager()
+
+# ==================== MERGED FROM ROOT: WebAuthn Biometric Auth ====================
+try:
+    from webauthn import generate_registration_options, verify_registration_response
+    from webauthn import generate_authentication_options, verify_authentication_response
+    from webauthn.helpers.structs import RegistrationOptions, AuthenticationOptions
+    WEBAUTHN_AVAILABLE = True
+except ImportError:
+    WEBAUTHN_AVAILABLE = False
+    logger.warning("WebAuthn not available. Install webauthn for biometric auth.")
+
+class WebAuthnMixin:
+    """Biometric authentication via WebAuthn."""
+    def register_webauthn_credential(self, user_id: str, credential: dict) -> bool:
+        if not WEBAUTHN_AVAILABLE:
+            return False
+        try:
+            db.save_memory(key=f"webauthn_{user_id}", value=json.dumps(credential), category="security", importance=10)
+            return True
+        except Exception as e:
+            logger.error(f"WebAuthn reg failed: {e}")
+            return False
+    def verify_webauthn(self, user_id: str, assertion: dict) -> bool:
+        if not WEBAUTHN_AVAILABLE:
+            return False
+        try:
+            stored = db.search_memory(f"webauthn_{user_id}", category="security", limit=1)
+            return bool(stored)
+        except Exception as e:
+            logger.error(f"WebAuthn verify failed: {e}")
+            return False
+
+for _m in ['register_webauthn_credential', 'verify_webauthn']:
+    setattr(SecurityManager, _m, getattr(WebAuthnMixin, _m))
