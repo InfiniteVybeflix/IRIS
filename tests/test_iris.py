@@ -29,7 +29,7 @@ def test_consciousness_state(client):
 
 def test_self_analyze():
     """Test self-improvement analysis"""
-    from self_improve import self_improvement
+    from modules.self_improve import self_improvement
     result = self_improvement.analyze_self()
     assert 'total_files' in result
     assert 'total_issues' in result
