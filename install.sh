@@ -1,88 +1,71 @@
 #!/bin/bash
-# IRIS v8 — One-Command Installer
-# Usage: chmod +x install.sh && ./install.sh
-
 set -e
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+echo "========================================"
+echo "  IRIS v9 Installer"
+echo "========================================"
 
-echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║                                                              ║${NC}"
-echo -e "${BLUE}║${NC}   ${GREEN}IRIS v8 — Infinite Reactive Intelligence System${NC}            ${BLUE}║${NC}"
-echo -e "${BLUE}║${NC}   ${YELLOW}Installer${NC}                                                  ${BLUE}║${NC}"
-echo -e "${BLUE}║                                                              ║${NC}"
-echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
-echo ""
-
-# Check Python version
-PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
-echo -e "${BLUE}[1/7]${NC} Checking Python version..."
-if ! python3 -c "import sys; exit(0 if sys.version_info >= (3, 9) else 1)" 2>/dev/null; then
-    echo -e "${RED}Error: Python 3.9+ required. Found: $PYTHON_VERSION${NC}"
-    exit 1
+OS="unknown"
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then OS="linux"
+elif [[ "$OSTYPE" == "darwin"* ]]; then OS="macos"
+elif [[ "$OSTYPE" == "linux-android"* ]]; then OS="termux"
 fi
-echo -e "${GREEN}✓ Python $PYTHON_VERSION detected${NC}"
 
-# Check if running in IRIS directory
-if [ ! -f "app.py" ]; then
-    echo -e "${RED}Error: app.py not found. Please run this script from the IRIS directory.${NC}"
+echo "Detected OS: ${OS}"
+
+if command -v python3 &> /dev/null; then
+    PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
+    echo "Python ${PYTHON_VERSION} found"
+else
+    echo "Error: Python 3 not found"
     exit 1
 fi
 
-# Create virtual environment
-echo -e "${BLUE}[2/7]${NC} Creating virtual environment..."
-if [ ! -d "venv" ]; then
+echo "Installing system dependencies..."
+if [[ "$OS" == "linux" ]]; then
+    sudo apt-get update
+    sudo apt-get install -y python3-dev python3-pip python3-venv git curl ffmpeg \
+        libsm6 libxext6 libgl1-mesa-glx tesseract-ocr libtesseract-dev \
+        poppler-utils build-essential redis-server
+elif [[ "$OS" == "macos" ]]; then
+    if ! command -v brew &> /dev/null; then
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
+    brew install python@3.11 git ffmpeg tesseract poppler redis
+elif [[ "$OS" == "termux" ]]; then
+    pkg update
+    pkg install -y python git ffmpeg libtesseract tesseract poppler build-essential redis
+fi
+
+echo "Setting up virtual environment..."
+if [[ ! -d "venv" ]]; then
     python3 -m venv venv
 fi
-echo -e "${GREEN}✓ Virtual environment ready${NC}"
-
-# Activate virtual environment
-echo -e "${BLUE}[3/7]${NC} Activating virtual environment..."
 source venv/bin/activate
-echo -e "${GREEN}✓ Activated${NC}"
 
-# Upgrade pip
-echo -e "${BLUE}[4/7]${NC} Upgrading pip..."
+echo "Installing Python dependencies..."
 pip install --upgrade pip
-echo -e "${GREEN}✓ Pip upgraded${NC}"
-
-# Install dependencies
-echo -e "${BLUE}[5/7]${NC} Installing dependencies..."
 pip install -r requirements.txt
-echo -e "${GREEN}✓ Dependencies installed${NC}"
 
-# Create .env if not exists
-echo -e "${BLUE}[6/7]${NC} Setting up environment..."
-if [ ! -f ".env" ]; then
+echo "Creating directories..."
+mkdir -p \
+    data/{experiences,iris_learnings,iris_knowledge,iris_self,uploads,vector_db,backups,sandbox,calendar,notes,projects,memory} \
+    outputs/{images,audio,video,3d,motion,science} \
+    models/{text,image,audio,video,3d,motion,robotics,science} \
+    logs
+
+if [[ ! -f ".env" ]]; then
+    echo "Creating .env from template..."
     cp .env.example .env
-    echo -e "${YELLOW}! .env file created. Please edit it with your API keys.${NC}"
-else
-    echo -e "${GREEN}✓ .env already exists${NC}"
+    echo "Please edit .env with your credentials"
 fi
 
-# Create data directories
-echo -e "${BLUE}[7/7]${NC} Creating data directories..."
-mkdir -p data/experiences data/iris_learnings data/iris_knowledge \
-    data/iris_self data/uploads data/vector_db data/backups \
-    data/sandbox data/calendar data/notes data/projects \
-    static/audio
-echo -e "${GREEN}✓ Directories created${NC}"
-
 echo ""
-echo -e "${GREEN}══════════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}  IRIS v8 installation complete!${NC}"
-echo -e "${GREEN}══════════════════════════════════════════════════════════════${NC}"
+echo "========================================"
+echo "  IRIS v9 installed successfully!"
+echo "========================================"
+echo "Next steps:"
+echo "  1. Edit .env with your credentials"
+echo "  2. source venv/bin/activate && python app.py"
+echo "  3. Open: http://localhost:5000"
 echo ""
-echo -e "${BLUE}Next steps:${NC}"
-echo -e "  1. Edit ${YELLOW}.env${NC} with your API keys"
-echo -e "  2. Run: ${YELLOW}source venv/bin/activate && python app.py${NC}"
-echo -e "  3. Open: ${YELLOW}http://localhost:5000${NC}"
-echo ""
-echo -e "${BLUE}Docker option:${NC}"
-echo -e "  Run: ${YELLOW}docker-compose up -d${NC}"
-echo ""
-echo -e "${YELLOW}Hey IRIS! Let's build something amazing.${NC}"

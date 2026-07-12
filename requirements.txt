@@ -1,55 +1,91 @@
 # IRIS v9 — Infinite Reactive Intelligence System
-# Jarvis Edition: Vercel + Postgres + Intelligence Phase
+# Complete Python Dependencies
 
-# ─── Core Framework ───
+# Core Framework
 Flask==3.0.0
 flask-cors==4.0.0
+flask-wtf==1.2.1
 Werkzeug==3.0.1
 gunicorn==21.2.0
 
-# ─── Database ───
+# Database
 SQLAlchemy==2.0.23
 psycopg2-binary==2.9.9
+APScheduler==3.10.4
 
-# ─── AI / LLM ───
+# AI / LLM
 openai==1.3.0
-requests==2.31.0
+groq==0.9.0
+transformers==4.36.0
+torch==2.1.0
+torchvision==0.16.0
+torchaudio==2.1.0
+accelerate==0.25.0
+sentencepiece==0.1.99
 
-# ─── Structured Output ───
+# Structured Output
 pydantic==2.5.0
 
-# ─── Environment ───
+# Environment
 python-dotenv==1.0.0
 
-# ─── Web Scraping & Search ───
+# Web Scraping & Search
 beautifulsoup4==4.12.2
 lxml==4.9.3
 duckduckgo-search==3.9.6
+requests==2.31.0
 
-# ─── GitHub ───
+# GitHub Integration
 PyGithub==2.1.1
 
-# ─── Voice ───
+# Voice
 edge-tts==6.1.9
 SpeechRecognition==3.10.0
+pyaudio==0.2.14
 
-# ─── Vision / Screen ───
+# Vision / Image
 Pillow==10.1.0
+opencv-python==4.8.1.78
 
-# ─── Math ───
+# Document Processing
+pdfplumber==0.10.0
+PyPDF2==3.0.0
+pdf2image==1.16.0
+pytesseract==0.3.10
+python-magic==0.4.27
+
+# Math & Science
 sympy==1.12
 numpy==1.26.2
+scipy==1.11.4
 
-# ─── Security ───
+# Security
 bcrypt==4.1.2
 python-jose[cryptography]==3.3.0
+bleach==6.1.0
 
-# ─── AST Tools ───
+# AST Tools
 astor==0.8.1
 
-# ─── Utilities ───
+# Utilities
 tqdm==4.66.1
+psutil==5.9.6
+pyautogui==0.9.54
 
-# ─── Testing ───
+# Testing
 pytest==7.4.3
 httpx==0.25.2
+
+# NLP
+spacy==3.7.2
+stanza==1.6.0
+deep-translator==1.11.0
+
+# Chess
+chess==1.10.0
+
+# Optional: Local model inference
+# llama-cpp-python
+# diffusers
+# huggingface-hub
+# safetensors
