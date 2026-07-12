@@ -1,1 +1,0 @@
-"""IRIS skills.multimodal module."""
