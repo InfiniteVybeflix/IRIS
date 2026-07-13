@@ -1,136 +1,121 @@
-"""IRIS v7 System Automation Skill — System Control"""
-import logging
-import os
-import shutil
-import subprocess
-import threading
-import time
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+"""System Automation Skill — File ops, scheduled tasks, workflow automation."""
 
-from skills.base import BaseSkill, SkillCapability
-from skills.contracts.skill_request import SkillRequest
-from skills.contracts.skill_result import SkillResult
-from skills.contracts.capability_tags import CapabilityTags
+import os
+import json
+import logging
+import threading
+import subprocess
+import time
+from typing import Dict, Any
+from datetime import datetime, timedelta
+from skills import BaseSkill
 
 logger = logging.getLogger(__name__)
 
 
 class SystemAutomationSkill(BaseSkill):
-    name = "system_automation"
-    display_name = "System Automation"
-    description = "Smart file organizer, duplicate finder, bulk rename, file watcher, secure shredder, backup automation, network monitoring, and visual workflow builder."
-    version = "7.0.0"
-    category = "productivity"
-    icon = "⚙️"
-    uses_storage = True
-    storage_dir = "data/skills/system_automation"
-    storage_file = "data/skills/system_automation/config.json"
+    """File operations, scheduled tasks, and workflow automation."""
 
-    capabilities = [
-        SkillCapability(name="organize_files", description="Smart file organizer", input_schema={"source_dir": "str", "by": "str"}, tags=[CapabilityTags.FILES]),
-        SkillCapability(name="find_duplicates", description="Find duplicate files", input_schema={"directory": "str"}, tags=[CapabilityTags.FILES]),
-        SkillCapability(name="bulk_rename", description="Bulk file rename", input_schema={"files": "list", "pattern": "str"}, tags=[CapabilityTags.FILES]),
-        SkillCapability(name="shred_file", description="Secure file shredder", input_schema={"file_path": "str", "passes": "int"}, tags=[CapabilityTags.FILES]),
-        SkillCapability(name="backup", description="Create backup", input_schema={"source": "str", "destination": "str"}, tags=[CapabilityTags.FILES]),
-        SkillCapability(name="monitor_website", description="Website uptime monitor", input_schema={"url": "str"}, tags=[CapabilityTags.CONNECTIVITY]),
-        SkillCapability(name="network_test", description="Network speed test", input_schema={}, tags=[CapabilityTags.CONNECTIVITY]),
-        SkillCapability(name="disk_usage", description="Disk usage analysis", input_schema={"path": "str"}, tags=[CapabilityTags.STORAGE]),
-    ]
+    def __init__(self):
+        super().__init__(name="system_automation", category="productivity", capabilities=["system_automation"])
+        self._schedules: Dict[str, Any] = {}
+        self._watches: Dict[str, Any] = {}
+        self._workflows: Dict[str, Any] = {}
+        self._timers: Dict[str, threading.Timer] = {}
 
-    def execute(self, request):
-        intent = request.intent.lower()
-        p = request.params
-        try:
-            if "organize" in intent: return self._organize(p.get("source_dir", "."), p.get("by", "type"))
-            elif "duplicate" in intent: return self._duplicates(p.get("directory", "."))
-            elif "rename" in intent: return self._rename(p.get("files", []), p.get("pattern", ""))
-            elif "shred" in intent: return self._shred(p.get("file_path"), p.get("passes", 3))
-            elif "backup" in intent: return self._backup(p.get("source"), p.get("destination"))
-            elif "monitor" in intent: return self._monitor(p.get("url"))
-            elif "network" in intent or "speed" in intent: return self._network_test()
-            elif "disk" in intent: return self._disk(p.get("path", "/"))
-            return SkillResult.fail(error=f"Unknown: {intent}")
-        except Exception as e:
-            return SkillResult.fail(error=str(e))
+    def execute(self, capability: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        method = params.get("method", "schedule_task")
+        if method == "schedule_task":
+            return self.schedule_task(params)
+        elif method == "watch_file":
+            return self.watch_file(params)
+        elif method == "automate_workflow":
+            return self.automate_workflow(params)
+        elif method == "cancel_task":
+            return self.cancel_task(params)
+        elif method == "list_tasks":
+            return self.list_tasks(params)
+        return {"error": f"Unknown method: {method}"}
 
-    def can_handle(self, request):
-        return 0.9 if any(k in request.intent.lower() for k in ["automate", "organize", "duplicate", "rename", "shred", "backup", "monitor", "disk_usage"]) else super().can_handle(request)
+    def schedule_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        job_id = params.get("job_id", f"job_{int(time.time())}")
+        capability_name = params.get("capability", "")
+        task_params = params.get("params", {})
+        interval = params.get("interval_seconds", 3600)
+        max_runs = params.get("max_runs", None)
+        if job_id in self._timers:
+            return {"success": False, "error": f"Job '{job_id}' already exists. Cancel first."}
+        runs = [0]
+        def wrapper():
+            if max_runs and runs[0] >= max_runs:
+                return
+            runs[0] += 1
+            try:
+                from skills import skill_router
+                skill_router.execute(capability_name, task_params)
+            except Exception as e:
+                logger.error(f"Scheduled job '{job_id}' error: {e}")
+            if (not max_runs or runs[0] < max_runs) and job_id in self._schedules:
+                t = threading.Timer(interval, wrapper)
+                t.daemon = True
+                t.start()
+                self._timers[job_id] = t
+        timer = threading.Timer(interval, wrapper)
+        timer.daemon = True
+        timer.start()
+        self._timers[job_id] = timer
+        self._schedules[job_id] = {"capability": capability_name, "params": task_params, "interval": interval, "max_runs": max_runs, "created_at": datetime.utcnow().isoformat(), "runs": 0}
+        return {"success": True, "job_id": job_id, "scheduled": True, "interval_seconds": interval, "max_runs": max_runs}
 
-    def _organize(self, source: str, by: str) -> SkillResult:
-        if not os.path.isdir(source): return SkillResult.fail(error="Directory not found")
-        moved = 0
-        for f in os.listdir(source):
-            fp = os.path.join(source, f)
-            if os.path.isfile(fp):
-                ext = os.path.splitext(f)[1].lower() or "no_extension"
-                dest = os.path.join(source, ext if by == "type" else datetime.fromtimestamp(os.stat(fp).st_mtime).strftime("%Y-%m"))
-                os.makedirs(dest, exist_ok=True)
-                shutil.move(fp, os.path.join(dest, f))
-                moved += 1
-        return SkillResult.ok(message=f"Organized {moved} files by {by}", data={"moved": moved, "by": by})
+    def watch_file(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        path = params.get("path", "")
+        callback_capability = params.get("callback_capability", "")
+        if not path or not os.path.exists(path):
+            return {"success": False, "error": f"Path not found: {path}"}
+        initial_mtime = os.path.getmtime(path)
+        initial_size = os.path.getsize(path)
+        self._watches[path] = {"path": path, "callback": callback_capability, "initial_mtime": initial_mtime, "initial_size": initial_size, "watching": True, "since": datetime.utcnow().isoformat()}
+        def check():
+            watch = self._watches.get(path)
+            if not watch or not watch.get("watching"):
+                return
+            try:
+                current_mtime = os.path.getmtime(path)
+                if current_mtime != watch["initial_mtime"]:
+                    watch["initial_mtime"] = current_mtime
+                    if callback_capability:
+                        from skills import skill_router
+                        skill_router.execute(callback_capability, {"path": path, "event": "modified"})
+            except OSError:
+                pass
+            threading.Timer(5, check).start()
+        threading.Timer(5, check).start()
+        return {"success": True, "path": path, "watching": True, "initial_size": initial_size}
 
-    def _duplicates(self, directory: str) -> SkillResult:
-        import hashlib
-        hashes = {}
-        dups = []
-        for root, _, files in os.walk(directory):
-            for f in files:
-                fp = os.path.join(root, f)
-                try:
-                    h = hashlib.md5(open(fp, "rb").read(8192)).hexdigest()
-                    if h in hashes: dups.append({"original": hashes[h], "duplicate": fp})
-                    else: hashes[h] = fp
-                except Exception:
-                    pass
-        return SkillResult.ok(message=f"Found {len(dups)} duplicates", data={"duplicates": dups, "wasted_mb": len(dups) * 5})
+    def automate_workflow(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        steps = params.get("steps", [])
+        workflow_id = params.get("workflow_id", f"wf_{int(time.time())}")
+        results = []
+        for step in steps:
+            cap = step.get("capability", "")
+            step_params = step.get("params", {})
+            try:
+                from skills import skill_router
+                result = skill_router.execute(cap, step_params)
+                results.append({"capability": cap, "success": result.get("success", False), "result": result})
+            except Exception as e:
+                results.append({"capability": cap, "success": False, "error": str(e)})
+        self._workflows[workflow_id] = {"steps": steps, "results": results, "created_at": datetime.utcnow().isoformat()}
+        return {"success": True, "workflow_id": workflow_id, "steps_executed": len(results), "results": results}
 
-    def _rename(self, files: list, pattern: str) -> SkillResult:
-        renamed = []
-        for i, f in enumerate(files):
-            if os.path.exists(f):
-                new_name = pattern.replace("{i}", str(i)).replace("{name}", os.path.splitext(os.path.basename(f))[0])
-                new_path = os.path.join(os.path.dirname(f), new_name)
-                os.rename(f, new_path)
-                renamed.append({"old": f, "new": new_path})
-        return SkillResult.ok(message=f"Renamed {len(renamed)} files", data={"renamed": renamed})
+    def cancel_task(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        job_id = params.get("job_id", "")
+        timer = self._timers.pop(job_id, None)
+        schedule = self._schedules.pop(job_id, None)
+        if timer:
+            timer.cancel()
+            return {"success": True, "job_id": job_id, "cancelled": True}
+        return {"success": False, "error": f"Job '{job_id}' not found"}
 
-    def _shred(self, filepath: str, passes: int) -> SkillResult:
-        if not filepath or not os.path.exists(filepath): return SkillResult.fail(error="File not found")
-        size = os.path.getsize(filepath)
-        with open(filepath, "ba+", buffering=0) as f:
-            for p in range(passes):
-                f.seek(0)
-                f.write(os.urandom(size))
-        os.remove(filepath)
-        return SkillResult.ok(message=f"Shredded {filepath} ({passes} passes)", data={"file": filepath, "passes": passes, "method": "DoD 5220.22-M"})
-
-    def _backup(self, source: str, dest: str) -> SkillResult:
-        if not source or not os.path.exists(source): return SkillResult.fail(error="Source not found")
-        backup_name = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        backup_path = os.path.join(dest or ".", backup_name)
-        if os.path.isdir(source):
-            shutil.copytree(source, backup_path)
-        else:
-            os.makedirs(backup_path, exist_ok=True)
-            shutil.copy2(source, backup_path)
-        return SkillResult.ok(message=f"Backup: {backup_path}", data={"backup_path": backup_path, "size_mb": sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fn in os.walk(backup_path) for f in fn) / (1024**2)})
-
-    def _monitor(self, url: str) -> SkillResult:
-        import urllib.request
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "IRIS-Monitor/7.0"})
-            with urllib.request.urlopen(req, timeout=10) as r:
-                status = r.getcode()
-                return SkillResult.ok(message=f"{url}: HTTP {status}", data={"url": url, "status": status, "up": status == 200, "response_time_ms": 150})
-        except Exception as e:
-            return SkillResult.ok(message=f"{url}: DOWN ({e})", data={"url": url, "up": False, "error": str(e)})
-
-    def _network_test(self) -> SkillResult:
-        return SkillResult.ok(message="Network test complete", data={"download_mbps": 85.5, "upload_mbps": 42.3, "ping_ms": 12, "dns_resolution": "OK"})
-
-    def _disk(self, path: str) -> SkillResult:
-        import shutil
-        usage = shutil.disk_usage(path)
-        return SkillResult.ok(message=f"Disk: {usage.used // (1024**3)}GB / {usage.total // (1024**3)}GB", data={"total_gb": usage.total // (1024**3), "used_gb": usage.used // (1024**3), "free_gb": usage.free // (1024**3), "percent": round(usage.used / usage.total * 100, 1)})
+    def list_tasks(self, params: Dict[str, Any] = None) -> Dict[str, Any]:
+        return {"success": True, "scheduled_jobs": len(self._schedules), "watches": len(self._watches), "workflows": len(self._workflows), "jobs": list(self._schedules.keys()), "watches_list": list(self._watches.keys())}

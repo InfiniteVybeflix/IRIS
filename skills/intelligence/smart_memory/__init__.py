@@ -1,3 +1,3 @@
-"""Smart Memory — Semantic search, temporal reasoning, goal tracking, continuity."""
+"""Smart Memory — Semantic storage, retrieval, search, consolidation."""
 from skills.intelligence.smart_memory.skill import SmartMemorySkill
 __all__ = ["SmartMemorySkill"]

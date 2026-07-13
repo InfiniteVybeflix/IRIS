@@ -1,3 +1,3 @@
-"""Digital Forensics — Memory/disk/network forensics, timeline reconstruction."""
+"""Forensics — Digital forensics, artifact analysis, timeline reconstruction."""
 from skills.security.forensics.skill import ForensicsSkill
 __all__ = ["ForensicsSkill"]

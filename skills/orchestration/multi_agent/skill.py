@@ -1,109 +1,111 @@
-"""IRIS v7 Multi-Agent Skill — Sub-Agent Orchestration"""
-import logging
-import json
-import threading
-import time
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+"""Multi-Agent Skill — Swarm coordination and task delegation."""
 
-from skills.base import BaseSkill, SkillCapability
-from skills.contracts.skill_request import SkillRequest
-from skills.contracts.skill_result import SkillResult
-from skills.contracts.capability_tags import CapabilityTags
+import uuid
+import logging
+from typing import Dict, Any, List
+from datetime import datetime
+from skills import BaseSkill
 
 logger = logging.getLogger(__name__)
 
 
 class MultiAgentSkill(BaseSkill):
-    name = "multi_agent"
-    display_name = "Multi-Agent Orchestrator"
-    description = "Spawn specialized sub-agents for parallel task execution, coordination, result aggregation, quality assurance, and hierarchical agent trees."
-    version = "7.0.0"
-    category = "orchestration"
-    icon = "🤖"
-    uses_storage = True
-    storage_dir = "data/skills/multi_agent"
-    storage_file = "data/skills/multi_agent/agents.json"
+    """Multi-agent swarm coordination and task delegation."""
 
-    capabilities = [
-        SkillCapability(name="spawn_agents", description="Spawn parallel agents", input_schema={"tasks": "list"}, tags=[CapabilityTags.SWARM]),
-        SkillCapability(name="delegate_task", description="Delegate to sub-agent", input_schema={"agent_type": "str", "task": "str"}, tags=[CapabilityTags.SWARM]),
-        SkillCapability(name="aggregate_results", description="Aggregate agent results", input_schema={"results": "list"}, tags=[CapabilityTags.SWARM]),
-        SkillCapability(name="quality_check", description="Quality assurance on outputs", input_schema={"output": "str", "criteria": "list"}, tags=[CapabilityTags.EVALUATOR]),
-        SkillCapability(name="agent_status", description="Get all agent statuses", input_schema={}, tags=[CapabilityTags.OBSERVABILITY]),
-        SkillCapability(name="kill_agent", description="Kill an agent", input_schema={"agent_id": "str"}, tags=[CapabilityTags.SWARM]),
-    ]
+    SPECIALTIES = ["frontend", "backend", "testing", "security", "devops", "documentation", "analysis", "research", "creative"]
 
     def __init__(self):
-        super().__init__()
-        self.agents = {}
-        self._lock = threading.Lock()
+        super().__init__(
+            name="multi_agent",
+            category="orchestration",
+            capabilities=["multi_agent"]
+        )
+        self._agents: Dict[str, Dict] = {}
+        self._tasks: Dict[str, Dict] = {}
+        self._results: Dict[str, List] = {}
+        self._init_default_agents()
 
-    def execute(self, request):
-        intent = request.intent.lower()
-        p = request.params
-        try:
-            if "spawn" in intent: return self._spawn(p.get("tasks", []))
-            elif "delegate" in intent: return self._delegate(p.get("agent_type", "general"), p.get("task", ""))
-            elif "aggregate" in intent: return self._aggregate(p.get("results", []))
-            elif "quality" in intent: return self._quality(p.get("output", ""), p.get("criteria", []))
-            elif "status" in intent: return self._status()
-            elif "kill" in intent: return self._kill(p.get("agent_id"))
-            return SkillResult.fail(error=f"Unknown: {intent}")
-        except Exception as e:
-            return SkillResult.fail(error=str(e))
+    def _init_default_agents(self):
+        for specialty in self.SPECIALTIES:
+            agent_id = f"iris_{specialty}_{uuid.uuid4().hex[:6]}"
+            self._agents[agent_id] = {"specialty": specialty, "status": "idle", "current_task": None, "completed_tasks": 0, "created_at": datetime.utcnow().isoformat()}
 
-    def can_handle(self, request):
-        return 0.9 if any(k in request.intent.lower() for k in ["multi_agent", "spawn", "delegate", "aggregate", "quality_check", "swarm"]) else super().can_handle(request)
+    def execute(self, capability: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        method = params.get("method", "delegate")
+        if method == "delegate":
+            return self.delegate(params)
+        elif method == "coordinate":
+            return self.coordinate(params)
+        elif method == "aggregate":
+            return self.aggregate(params)
+        elif method == "assign":
+            return self.assign(params)
+        elif method == "list_agents":
+            return self.list_agents(params)
+        return {"error": f"Unknown method: {method}"}
 
-    def _spawn(self, tasks: list) -> SkillResult:
+    def delegate(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        task = params.get("task", {})
+        specialty = params.get("specialty", "")
+        # Find best agent
+        best_agent = None
+        if specialty:
+            for aid, agent in self._agents.items():
+                if agent["specialty"] == specialty and agent["status"] == "idle":
+                    best_agent = aid
+                    break
+        if not best_agent:
+            for aid, agent in self._agents.items():
+                if agent["status"] == "idle":
+                    best_agent = aid
+                    break
+        if not best_agent:
+            best_agent = self._create_agent(specialty or "general")
+        self._agents[best_agent]["status"] = "working"
+        self._agents[best_agent]["current_task"] = task
+        task_id = f"task_{uuid.uuid4().hex[:8]}"
+        self._tasks[task_id] = {"agent": best_agent, "task": task, "status": "delegated", "timestamp": datetime.utcnow().isoformat()}
+        return {"success": True, "task_id": task_id, "agent": best_agent, "specialty": self._agents[best_agent]["specialty"], "status": "delegated"}
+
+    def coordinate(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        agent_ids = params.get("agent_ids", list(self._agents.keys()))
+        sync_mode = params.get("sync_mode", "broadcast")
+        coordinated = []
+        for aid in agent_ids:
+            if aid in self._agents:
+                coordinated.append({"agent": aid, "status": self._agents[aid]["status"], "synced": True})
+        return {"success": True, "agents_coordinated": len(coordinated), "sync_mode": sync_mode, "agents": coordinated}
+
+    def aggregate(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        task_ids = params.get("task_ids", list(self._tasks.keys()))
         results = []
-        with ThreadPoolExecutor(max_workers=5) as ex:
-            futures = []
-            for i, task in enumerate(tasks):
-                agent_id = f"agent_{i}_{int(time.time())}"
-                self.agents[agent_id] = {"status": "running", "task": task, "started": datetime.now().isoformat()}
-                f = ex.submit(self._execute_agent, agent_id, task)
-                futures.append((agent_id, f))
-            for aid, fut in futures:
-                try:
-                    result = fut.result(timeout=30)
-                    self.agents[aid]["status"] = "completed"
-                    results.append({"agent_id": aid, "result": result})
-                except Exception as e:
-                    self.agents[aid]["status"] = "failed"
-                    results.append({"agent_id": aid, "error": str(e)})
-        return SkillResult.ok(message=f"Spawned {len(tasks)} agents, {len([r for r in results if 'result' in r])} succeeded", data={"agents": results})
+        for tid in task_ids:
+            if tid in self._tasks:
+                results.append({"task_id": tid, **self._tasks[tid]})
+        # Simple consensus: majority vote if results are categorical
+        consensus = "none"
+        if results and all("result" in r for r in results):
+            values = [str(r["result"]) for r in results]
+            from collections import Counter
+            most_common = Counter(values).most_common(1)
+            if most_common:
+                consensus = most_common[0][0]
+        return {"success": True, "aggregated_count": len(results), "results": results, "consensus": consensus}
 
-    def _execute_agent(self, agent_id: str, task: str) -> dict:
-        time.sleep(0.1)
-        return {"agent_id": agent_id, "task": task, "output": f"Completed: {task[:50]}", "confidence": 0.92}
+    def assign(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        specialty = params.get("specialty", "general")
+        task = params.get("task", {})
+        agent_id = self._create_agent(specialty)
+        self._agents[agent_id]["status"] = "assigned"
+        self._tasks[f"task_{uuid.uuid4().hex[:8]}"] = {"agent": agent_id, "task": task, "status": "assigned", "specialty": specialty}
+        return {"success": True, "agent_id": agent_id, "specialty": specialty, "agents_total": len(self._agents)}
 
-    def _delegate(self, agent_type: str, task: str) -> SkillResult:
-        aid = f"{agent_type}_{int(time.time())}"
-        result = self._execute_agent(aid, task)
-        return SkillResult.ok(message=f"Delegated to {aid}", data=result)
+    def list_agents(self, params: Dict[str, Any] = None) -> Dict[str, Any]:
+        idle = sum(1 for a in self._agents.values() if a["status"] == "idle")
+        working = sum(1 for a in self._agents.values() if a["status"] == "working")
+        return {"success": True, "total": len(self._agents), "idle": idle, "working": working, "agents": dict(self._agents)}
 
-    def _aggregate(self, results: list) -> SkillResult:
-        outputs = [r.get("output", str(r)) for r in results]
-        consensus = max(set(outputs), key=outputs.count) if outputs else ""
-        return SkillResult.ok(message=f"Aggregated {len(results)} results", data={"consensus": consensus, "all_outputs": outputs, "divergence": len(set(outputs))})
-
-    def _quality(self, output: str, criteria: list) -> SkillResult:
-        score = 100
-        issues = []
-        if len(output) < 50: score -= 20; issues.append("Output too short")
-        if not any(c.isupper() for c in output): score -= 10; issues.append("No capital letters")
-        for c in criteria:
-            if c.lower() not in output.lower(): score -= 15; issues.append(f"Missing: {c}")
-        return SkillResult.ok(message=f"Quality score: {score}/100", data={"score": score, "issues": issues, "passed": score >= 70})
-
-    def _status(self) -> SkillResult:
-        return SkillResult.ok(message=f"Active agents: {len(self.agents)}", data={"agents": {k: v for k, v in self.agents.items()}})
-
-    def _kill(self, agent_id: str) -> SkillResult:
-        if agent_id in self.agents:
-            self.agents[agent_id]["status"] = "killed"
-            return SkillResult.ok(message=f"Agent {agent_id} killed", data={"agent_id": agent_id})
-        return SkillResult.fail(error=f"Agent {agent_id} not found")
+    def _create_agent(self, specialty: str) -> str:
+        agent_id = f"iris_{specialty}_{uuid.uuid4().hex[:6]}"
+        self._agents[agent_id] = {"specialty": specialty, "status": "idle", "current_task": None, "completed_tasks": 0, "created_at": datetime.utcnow().isoformat()}
+        return agent_id

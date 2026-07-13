@@ -1,213 +1,140 @@
-"""IRIS v7 OSINT Skill — Open Source Intelligence"""
-import logging
-import json
-import os
+"""OSINT Skill — Open-source intelligence gathering and correlation."""
+
 import re
 import socket
-import subprocess
-import threading
-import time
 import urllib.request
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import quote, urljoin
-
-from skills.base import BaseSkill, SkillCapability
-from skills.contracts.skill_request import SkillRequest
-from skills.contracts.skill_result import SkillResult
-from skills.contracts.capability_tags import CapabilityTags
+import urllib.parse
+import logging
+from typing import Dict, Any, List
+from skills import BaseSkill
 
 logger = logging.getLogger(__name__)
 
 
-class OSINTSkill(BaseSkill):
-    name = "osint"
-    display_name = "OSINT"
-    description = "Open Source Intelligence — domain reconnaissance, email intelligence, social media analysis, geolocation, dark web monitoring, and comprehensive target profiling from public data."
-    version = "7.0.0"
-    category = "security"
-    icon = "🌐"
-    uses_storage = True
-    storage_dir = "data/skills/osint"
-    storage_file = "data/skills/osint/reports.json"
+class OsintSkill(BaseSkill):
+    """Open-source intelligence gathering, correlation, and enrichment."""
 
-    capabilities = [
-        SkillCapability(name="domain_recon", description="Domain reconnaissance (WHOIS, DNS, subdomains)", input_schema={"domain": "str"}, tags=[CapabilityTags.SEARCH]),
-        SkillCapability(name="email_intel", description="Email intelligence and breach checking", input_schema={"email": "str"}, tags=[CapabilityTags.SEARCH]),
-        SkillCapability(name="ip_lookup", description="IP geolocation and reputation", input_schema={"ip": "str"}, tags=[CapabilityTags.SEARCH]),
-        SkillCapability(name="social_media_intel", description="Social media profile analysis", input_schema={"username": "str", "platforms": "list"}, tags=[CapabilityTags.SEARCH]),
-        SkillCapability(name="generate_osint_report", description="Generate comprehensive OSINT report", input_schema={"target": "str", "target_type": "str"}, tags=[CapabilityTags.DOCUMENTS]),
-        SkillCapability(name="check_breach", description="Check email/username in breach databases", input_schema={"identifier": "str"}, tags=[CapabilityTags.TRUST_SAFETY]),
-        SkillCapability(name="subdomain_enum", description="Enumerate subdomains", input_schema={"domain": "str"}, tags=[CapabilityTags.SEARCH]),
-        SkillCapability(name="image_analysis", description="Reverse image search and EXIF analysis", input_schema={"image_path": "str"}, tags=[CapabilityTags.SEARCH]),
-        SkillCapability(name="dark_web_monitor", description="Simulated dark web monitoring", input_schema={"keyword": "str"}, tags=[CapabilityTags.SEARCH]),
-    ]
+    def __init__(self):
+        super().__init__(name="osint", category="security", capabilities=["osint"])
 
-    def execute(self, request: SkillRequest) -> SkillResult:
-        intent = request.intent.lower()
-        params = request.params
-        try:
-            if intent in ("domain_recon", "recon"):
-                return self._domain_recon(params.get("domain"))
-            elif intent in ("email_intel", "email"):
-                return self._email_intel(params.get("email"))
-            elif intent in ("ip_lookup", "ip"):
-                return self._ip_lookup(params.get("ip"))
-            elif intent in ("social_media_intel", "social"):
-                return self._social_media(params.get("username"), params.get("platforms", []))
-            elif intent in ("generate_osint_report", "osint_report"):
-                return self._generate_report(params.get("target"), params.get("target_type", "domain"))
-            elif intent in ("check_breach", "breach_check"):
-                return self._check_breach(params.get("identifier"))
-            elif intent in ("subdomain_enum", "subdomains"):
-                return self._subdomain_enum(params.get("domain"))
-            elif intent in ("image_analysis", "image_intel"):
-                return self._image_analysis(params.get("image_path"))
-            elif intent in ("dark_web_monitor", "dark_web"):
-                return self._dark_web(params.get("keyword"))
-            return SkillResult.fail(error=f"Unknown intent: {intent}")
-        except Exception as e:
-            logger.exception(f"OSINT error: {e}")
-            return SkillResult.fail(error=str(e))
+    def execute(self, capability: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        method = params.get("method", "gather")
+        if method == "gather":
+            return self.gather(params)
+        elif method == "correlate":
+            return self.correlate(params)
+        elif method == "enrich":
+            return self.enrich(params)
+        elif method == "footprint":
+            return self.footprint(params)
+        return {"error": f"Unknown method: {method}"}
 
-    def can_handle(self, request: SkillRequest) -> float:
-        intent = request.intent.lower()
-        keywords = ["osint", "recon", "whois", "subdomain", "breach", "email_intel", "ip_lookup", "social_media", "dark_web", "geolocation", "profiler"]
-        if any(k in intent for k in keywords):
-            return 0.95
-        return super().can_handle(request)
-
-    def _domain_recon(self, domain: str) -> SkillResult:
-        if not domain:
-            return SkillResult.fail(error="Domain required")
-        result = {"domain": domain, "dns_records": [], "whois": {}, "subdomains": [], "tech_stack": []}
-        # DNS resolution
-        for qtype in ["A", "AAAA", "MX", "NS", "TXT", "SOA"]:
-            try:
-                import dns.resolver
-                answers = dns.resolver.resolve(domain, qtype)
-                result["dns_records"].extend([{"type": qtype, "value": str(r)} for r in answers])
-            except Exception:
-                pass
-        # Fallback
-        if not result["dns_records"]:
-            try:
-                ip = socket.gethostbyname(domain)
-                result["dns_records"].append({"type": "A", "value": ip})
-            except Exception:
-                pass
-        # WHOIS simulation
-        result["whois"] = {"registrar": "Example Registrar Inc.", "created": "2020-01-01", "expires": "2026-01-01", "updated": "2024-06-01", "name_servers": ["ns1.example.com", "ns2.example.com"], "privacy": True}
-        # Certificate transparency
-        result["cert_transparency"] = [f"*.{domain}", domain, f"www.{domain}", f"mail.{domain}", f"api.{domain}"]
-        result["tech_stack"] = ["Cloudflare", "Nginx", "PHP", "WordPress", "jQuery"]
-        return SkillResult.ok(message=f"Domain recon: {len(result['dns_records'])} DNS records, {len(result['cert_transparency'])} CT entries", data=result)
-
-    def _email_intel(self, email: str) -> SkillResult:
-        if not email:
-            return SkillResult.fail(error="Email required")
-        if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
-            return SkillResult.fail(error="Invalid email format")
-        username, domain = email.split("@")
-        result = {"email": email, "format_valid": True, "disposable": domain in ["tempmail.com", "guerrillamail.com", "10minutemail.com"], "username": username, "domain": domain, "breaches": [], "patterns": []}
-        # Pattern analysis
-        patterns = {"common_formats": [f"{username}@", f"{username[0]}@"], "role_based": username.lower() in ["admin", "support", "info", "sales", "contact"]}
-        result["patterns"] = patterns
-        # Check breach
-        breach_result = self._check_breach(email)
-        if breach_result.success:
-            result["breaches"] = breach_result.data.get("breaches", [])
-        return SkillResult.ok(message=f"Email intel: {len(result['breaches'])} breaches found" if result["breaches"] else "Email intel: No breaches found", data=result)
-
-    def _ip_lookup(self, ip: str) -> SkillResult:
-        if not ip:
-            return SkillResult.fail(error="IP required")
-        result = {"ip": ip, "type": "public", "asn": "AS15169 Google LLC", "country": "US", "city": "Mountain View", "timezone": "America/Los_Angeles", "vpn": False, "tor": False, "proxy": False, "threat_intel": "clean"}
-        # Check private
-        private_ranges = [r"^10\.", r"^172\.(1[6-9]|2[0-9]|3[01])\.", r"^192\.168\.", r"^127\."]
-        if any(re.match(p, ip) for p in private_ranges):
-            result.update({"type": "private", "asn": "Private", "country": "N/A", "city": "N/A"})
-        # Check reputation
-        if ip.startswith("185."):
-            result["threat_intel"] = "suspicious"
-        return SkillResult.ok(message=f"IP lookup: {result['country']} — {result['threat_intel']}", data=result)
-
-    def _social_media(self, username: str, platforms: List[str]) -> SkillResult:
-        if not username:
-            return SkillResult.fail(error="Username required")
-        all_platforms = platforms or ["twitter", "github", "linkedin", "instagram", "reddit"]
-        profiles = []
-        for platform in all_platforms:
-            urls = {"twitter": f"https://twitter.com/{username}", "github": f"https://github.com/{username}", "linkedin": f"https://linkedin.com/in/{username}", "instagram": f"https://instagram.com/{username}", "reddit": f"https://reddit.com/user/{username}"}
-            profiles.append({"platform": platform, "url": urls.get(platform, ""), "exists": "unknown", "public_info": {"bio": "", "followers": 0, "following": 0}})
-        return SkillResult.ok(message=f"Social intel: {len(profiles)} platforms checked for '{username}'", data={"username": username, "profiles": profiles})
-
-    def _generate_report(self, target: str, target_type: str) -> SkillResult:
+    def gather(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        target = params.get("target", "")
+        sources = params.get("sources", ["web", "dns", "whois"])
         if not target:
-            return SkillResult.fail(error="Target required")
-        report = {"target": target, "type": target_type, "generated_at": datetime.now().isoformat(), "disclaimer": "OSINT data from public sources only. No unauthorized access performed.", "sections": []}
-        if target_type == "domain":
-            recon = self._domain_recon(target)
-            if recon.success:
-                report["sections"].append({"title": "Domain Reconnaissance", "data": recon.data})
-            subs = self._subdomain_enum(target)
-            if subs.success:
-                report["sections"].append({"title": "Subdomain Enumeration", "data": subs.data})
-        elif target_type == "email":
-            intel = self._email_intel(target)
-            if intel.success:
-                report["sections"].append({"title": "Email Intelligence", "data": intel.data})
-        report["sections"].append({"title": "Source Attribution", "data": {"sources": ["DNS records", "Certificate Transparency logs", "Public WHOIS data"], "confidence": "MEDIUM"}})
-        return SkillResult.ok(message=f"OSINT report generated for {target}", data=report)
-
-    def _check_breach(self, identifier: str) -> SkillResult:
-        if not identifier:
-            return SkillResult.fail(error="Identifier required")
-        # Simulated breach data
-        breaches = []
-        known_breaches = [{"name": "Collection1", "date": "2019-01", "records": 773000000}, {"name": "LinkedIn2021", "date": "2021-06", "records": 700000000}]
-        # Hash-based simulation
-        identifier_hash = hashlib.sha256(identifier.lower().encode()).hexdigest()
-        if identifier_hash[0] in "abcd":
-            breaches = known_breaches[:1]
-        elif identifier_hash[0] in "efgh":
-            breaches = known_breaches
-        return SkillResult.ok(message=f"Breach check: {len(breaches)} breaches" if breaches else "No known breaches", data={"identifier": identifier[:3] + "***", "breaches": breaches, "recommendation": "Change password if reused" if breaches else "Good security hygiene"})
-
-    def _subdomain_enum(self, domain: str) -> SkillResult:
-        if not domain:
-            return SkillResult.fail(error="Domain required")
-        wordlist = ["www", "mail", "ftp", "admin", "api", "blog", "shop", "app", "dev", "test", "staging", "vpn", "ns1", "ns2", "support", "portal"]
-        found = []
-        for sub in wordlist:
-            fqdn = f"{sub}.{domain}"
+            return {"success": False, "error": "No target provided"}
+        data = {"target": target, "sources_used": sources}
+        if "dns" in sources:
             try:
-                socket.gethostbyname(fqdn)
-                found.append(fqdn)
+                ip = socket.gethostbyname(target)
+                data["dns"] = {"a_record": ip}
+                try:
+                    hostname, aliases, addresses = socket.gethostbyaddr(ip)
+                    data["dns"]["ptr_record"] = hostname
+                except socket.herror:
+                    pass
+            except socket.gaierror as e:
+                data["dns"] = {"error": str(e)}
+        if "whois" in sources:
+            try:
+                import subprocess
+                result = subprocess.run(["whois", target], capture_output=True, text=True, timeout=15)
+                whois_data = result.stdout[:5000] if result.stdout else ""
+                registrar = re.search(r'Registrar:\s*(.+)', whois_data)
+                created = re.search(r'Creation Date:\s*(.+)', whois_data) or re.search(r'created:\s*(.+)', whois_data)
+                expires = re.search(r'Registry Expiry Date:\s*(.+)', whois_data) or re.search(r'expires:\s*(.+)', whois_data)
+                data["whois"] = {"raw": whois_data[:2000], "registrar": registrar.group(1).strip() if registrar else "", "created": created.group(1).strip() if created else "", "expires": expires.group(1).strip() if expires else ""}
+            except Exception as e:
+                data["whois"] = {"error": str(e)}
+        if "web" in sources:
+            try:
+                url = f"https://{target}" if not target.startswith("http") else target
+                req = urllib.request.Request(url, headers={"User-Agent": "IRIS-OMNIS/1.0"}, method="HEAD")
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data["web"] = {"status": resp.status, "server": resp.headers.get("Server", ""), "headers": dict(resp.headers)}
+            except Exception as e:
+                data["web"] = {"error": str(e)}
+        return {"success": True, **data}
+
+    def correlate(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        data_points = params.get("data_points", [])
+        correlations = []
+        # Find shared IPs, domains, emails across data points
+        ips_found = set()
+        domains_found = set()
+        for dp in data_points:
+            if "ip" in dp:
+                ips_found.add(dp["ip"])
+            if "domain" in dp:
+                domains_found.add(dp["domain"])
+        shared = {"ips": list(ips_found), "domains": list(domains_found), "data_points": len(data_points)}
+        if len(ips_found) == 1 and len(data_points) > 1:
+            correlations.append({"type": "shared_ip", "value": list(ips_found)[0], "confidence": "high"})
+        return {"success": True, "correlations_found": len(correlations), "correlations": correlations, "shared_indicators": shared}
+
+    def enrich(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        indicator = params.get("indicator", "")
+        if not indicator:
+            return {"success": False, "error": "No indicator provided"}
+        ioc_type = "unknown"
+        if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', indicator):
+            ioc_type = "ip"
+        elif re.match(r'^[a-f0-9]{32,64}$', indicator, re.IGNORECASE):
+            ioc_type = "hash"
+        elif '.' in indicator and not indicator.startswith("http"):
+            ioc_type = "domain"
+        enrichment = {"indicator": indicator, "type": ioc_type, "reputation": "unknown"}
+        if ioc_type == "ip":
+            try:
+                import urllib.request
+                req = urllib.request.Request(f"https://ipinfo.io/{indicator}/json", headers={"User-Agent": "IRIS-OMNIS/1.0"})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    import json
+                    ip_data = json.loads(resp.read().decode())
+                    enrichment["geolocation"] = {"city": ip_data.get("city", ""), "region": ip_data.get("region", ""), "country": ip_data.get("country", ""), "org": ip_data.get("org", ""), "asn": ip_data.get("asn", {})}
+            except Exception:
+                pass
+        return {"success": True, **enrichment}
+
+    def footprint(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        domain = params.get("domain", "")
+        if not domain:
+            return {"success": False, "error": "No domain provided"}
+        footprint = {"domain": domain, "subdomains": [], "technologies": []}
+        # Common subdomain enumeration
+        common_subs = ["www", "mail", "ftp", "api", "admin", "blog", "shop", "cdn", "dev", "staging", "test", "vpn", "portal", "support"]
+        found_subs = []
+        for sub in common_subs:
+            try:
+                full = f"{sub}.{domain}"
+                ip = socket.gethostbyname(full)
+                found_subs.append({"subdomain": full, "ip": ip})
             except socket.gaierror:
                 pass
-        return SkillResult.ok(message=f"Subdomain enum: {len(found)} subdomains found", data={"domain": domain, "subdomains": found, "method": "DNS brute-force"})
-
-    def _image_analysis(self, image_path: str) -> SkillResult:
-        if not image_path or not os.path.exists(image_path):
-            return SkillResult.fail(error="Image not found")
-        result = {"file": image_path, "reverse_search_urls": ["https://images.google.com/searchbyimage", "https://tineye.com/search", "https://yandex.com/images/search"], "exif": {}, "geolocation_estimate": None}
+        footprint["subdomains"] = found_subs
+        # Try to detect technologies
         try:
-            from PIL import Image
-            from PIL.ExifTags import TAGS, GPSTAGS
-            img = Image.open(image_path)
-            if hasattr(img, "_getexif") and img._getexif():
-                exif = {TAGS.get(tag, tag): value for tag, value in img._getexif().items()}
-                result["exif"] = {k: str(v) for k, v in exif.items() if k in ["Make", "Model", "DateTime", "GPSInfo", "LensModel", "Software"]}
-                if "GPSInfo" in exif:
-                    result["geolocation_estimate"] = "GPS coordinates present in EXIF"
-        except ImportError:
+            url = f"https://{domain}"
+            req = urllib.request.Request(url, headers={"User-Agent": "IRIS-OMNIS/1.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                headers = dict(resp.headers)
+                techs = []
+                if "X-Powered-By" in headers:
+                    techs.append(headers["X-Powered-By"])
+                if "Server" in headers:
+                    techs.append(headers["Server"])
+                footprint["technologies"] = techs
+        except Exception:
             pass
-        return SkillResult.ok(message=f"Image analysis: {len(result['exif'])} EXIF fields", data=result)
-
-    def _dark_web(self, keyword: str) -> SkillResult:
-        if not keyword:
-            return SkillResult.fail(error="Keyword required")
-        # Simulated dark web monitoring
-        mentions = [{"source": "Pastebin (simulated)", "date": "2024-06-15", "snippet": f"...{keyword} database dump available..."}, {"source": "Forum (simulated)", "date": "2024-06-20", "snippet": f"...selling access to {keyword}..."}]
-        return SkillResult.ok(message=f"Dark web monitor: {len(mentions)} mentions of '{keyword}'", data={"keyword": keyword, "mentions": mentions, "risk_level": "HIGH" if len(mentions) > 0 else "LOW"})
+        return {"success": True, **footprint}

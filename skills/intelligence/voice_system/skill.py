@@ -1,84 +1,93 @@
-"""IRIS v7 Voice System Skill — Voice & Speech"""
+"""Voice System Skill — Text-to-speech and speech-to-text."""
+
 import logging
 import os
-import queue
-import subprocess
 import tempfile
-import threading
-import time
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-
-from skills.base import BaseSkill, SkillCapability
-from skills.contracts.skill_request import SkillRequest
-from skills.contracts.skill_result import SkillResult
-from skills.contracts.capability_tags import CapabilityTags
+from typing import Dict, Any, List
+from skills import BaseSkill
 
 logger = logging.getLogger(__name__)
 
 
 class VoiceSystemSkill(BaseSkill):
-    name = "voice_system"
-    display_name = "Voice System"
-    description = "Voice and speech — TTS with multiple engines, STT, wake word detection, VAD, multi-language support, and voice emotion detection."
-    version = "7.0.0"
-    category = "intelligence"
-    icon = "🎙️"
-    uses_storage = True
-    storage_dir = "data/skills/voice_system"
-    storage_file = "data/skills/voice_system/config.json"
+    """Voice synthesis and recognition capabilities."""
 
-    capabilities = [
-        SkillCapability(name="speak", description="Text to speech", input_schema={"text": "str", "voice": "str"}, tags=[CapabilityTags.SPEECH]),
-        SkillCapability(name="listen", description="Speech to text", input_schema={"duration": "int"}, tags=[CapabilityTags.SPEECH]),
-        SkillCapability(name="detect_wake", description="Detect wake word", input_schema={}, tags=[CapabilityTags.WAKE_WORD]),
-        SkillCapability(name="list_voices", description="List available voices", input_schema={}, tags=[CapabilityTags.SPEECH]),
-        SkillCapability(name="voice_emotion", description="Detect voice emotion", input_schema={"text": "str"}, tags=[CapabilityTags.EMOTION_EXPRESSION]),
-    ]
+    def __init__(self):
+        super().__init__(
+            name="voice_system",
+            category="intelligence",
+            capabilities=["voice_synthesis", "voice_recognition"]
+        )
+        self._voices = {
+            "default": {"lang": "en", "gender": "neutral", "speed": 1.0},
+            "en_female": {"lang": "en", "gender": "female", "speed": 1.0},
+            "en_male": {"lang": "en", "gender": "male", "speed": 1.0},
+            "en_gb": {"lang": "en-GB", "gender": "female", "speed": 1.0},
+            "en_au": {"lang": "en-AU", "gender": "female", "speed": 1.0},
+            "es": {"lang": "es", "gender": "female", "speed": 1.0},
+            "fr": {"lang": "fr", "gender": "female", "speed": 1.0},
+            "de": {"lang": "de", "gender": "male", "speed": 1.0},
+            "ja": {"lang": "ja", "gender": "female", "speed": 1.0},
+            "zh": {"lang": "zh-CN", "gender": "female", "speed": 1.0},
+        }
 
-    def execute(self, request):
-        intent = request.intent.lower()
-        p = request.params
+    def execute(self, capability: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        if capability == "voice_synthesis":
+            return self.synthesize(params)
+        elif capability == "voice_recognition":
+            return self.transcribe(params)
+        return {"error": f"Unknown capability: {capability}"}
+
+    def synthesize(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        text = params.get("text", "")
+        voice_id = params.get("voice_id", "default")
+        output_format = params.get("format", "mp3")
+        speed = params.get("speed", self._voices.get(voice_id, {}).get("speed", 1.0))
+        if not text:
+            return {"success": False, "error": "No text provided"}
+        voice_cfg = self._voices.get(voice_id, self._voices["default"])
+        # Use pyttsx3 for local TTS
         try:
-            if "speak" in intent: return self._speak(p.get("text", ""), p.get("voice"))
-            elif "listen" in intent: return self._listen(p.get("duration", 5))
-            elif "wake" in intent: return self._wake()
-            elif "list" in intent and "voice" in intent: return self._list_voices()
-            elif "emotion" in intent: return self._emotion(p.get("text", ""))
-            return SkillResult.fail(error=f"Unknown: {intent}")
-        except Exception as e:
-            return SkillResult.fail(error=str(e))
-
-    def can_handle(self, request):
-        return 0.95 if any(k in request.intent.lower() for k in ["voice", "speak", "listen", "tts", "stt", "wake_word", "speech"]) else super().can_handle(request)
-
-    def _speak(self, text: str, voice: str = None) -> SkillResult:
-        if not text: return SkillResult.fail(error="Text required")
-        try:
-            import edge_tts
-            import asyncio
-            voice = voice or "en-US-AriaNeural"
-            output = tempfile.mktemp(suffix=".mp3")
-            async def _run():
-                communicate = edge_tts.Communicate(text, voice)
-                await communicate.save(output)
-            asyncio.run(_run())
-            return SkillResult.ok(message=f"TTS: {len(text)} chars -> {output}", data={"file": output, "voice": voice, "duration_estimate": len(text) * 0.08})
+            import pyttsx3
+            engine = pyttsx3.init()
+            engine.setProperty("rate", int(200 * speed))
+            voices = engine.getProperty("voices")
+            if voices and len(voices) > 1:
+                if voice_cfg.get("gender") == "male" and len(voices) > 0:
+                    engine.setProperty("voice", voices[0].id)
+                elif voice_cfg.get("gender") == "female" and len(voices) > 1:
+                    engine.setProperty("voice", voices[1].id)
+            output_path = params.get("output_path", os.path.join(tempfile.gettempdir(), f"iris_tts_{os.urandom(4).hex()}.{output_format}"))
+            engine.save_to_file(text, output_path)
+            engine.runAndWait()
+            return {"success": True, "text": text, "voice_id": voice_id, "output_path": output_path, "format": output_format, "voice_config": voice_cfg}
         except ImportError:
-            return SkillResult.ok(message="TTS: edge-tts not installed", data={"text": text, "note": "Install with: pip install edge-tts"})
+            return {"success": False, "error": "pyttsx3 not installed. Install with: pip install pyttsx3", "text": text, "voice_id": voice_id}
+        except Exception as e:
+            logger.error(f"TTS error: {e}")
+            return {"success": False, "error": str(e), "text": text}
 
-    def _listen(self, duration: int) -> SkillResult:
-        return SkillResult.ok(message=f"STT: listened for {duration}s", data={"duration": duration, "transcript": "[STT requires speech_recognition or whisper]", "confidence": 0.0})
+    def transcribe(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        audio_source = params.get("audio", "")
+        audio_path = params.get("audio_path", "")
+        language = params.get("language", "en-US")
+        try:
+            import speech_recognition as sr
+            recognizer = sr.Recognizer()
+            if audio_path:
+                with sr.AudioFile(audio_path) as source:
+                    audio_data = recognizer.record(source)
+            elif isinstance(audio_source, sr.AudioData):
+                audio_data = audio_source
+            else:
+                return {"success": False, "error": "Provide audio_path or AudioData object"}
+            transcript = recognizer.recognize_google(audio_data, language=language)
+            return {"success": True, "transcript": transcript, "language": language, "confidence": 0.9}
+        except ImportError:
+            return {"success": False, "error": "speech_recognition not installed. Install with: pip install SpeechRecognition"}
+        except Exception as e:
+            logger.error(f"STT error: {e}")
+            return {"success": False, "error": str(e)}
 
-    def _wake(self) -> SkillResult:
-        return SkillResult.ok(message="Wake word: listening for 'Hey IRIS'", data={"wake_word": "hey iris", "sensitivity": 0.7, "engines": ["pvporcupine", "snowboy"]})
-
-    def _list_voices(self) -> SkillResult:
-        voices = [{"id": "en-US-AriaNeural", "lang": "en-US", "gender": "Female"}, {"id": "en-US-GuyNeural", "lang": "en-US", "gender": "Male"}, {"id": "zh-CN-XiaoxiaoNeural", "lang": "zh-CN", "gender": "Female"}, {"id": "es-ES-ElviraNeural", "lang": "es-ES", "gender": "Female"}]
-        return SkillResult.ok(message=f"Voices: {len(voices)} available", data={"voices": voices})
-
-    def _emotion(self, text: str) -> SkillResult:
-        markers = {"frustrated": ["angry", "frustrated", "stupid", "broken"], "happy": ["great", "awesome", "love", "perfect"], "urgent": ["urgent", "emergency", "critical", "asap"]}
-        t = text.lower()
-        detected = next((k for k, v in markers.items() if any(w in t for w in v)), "neutral")
-        return SkillResult.ok(message=f"Voice emotion: {detected}", data={"emotion": detected, "confidence": 0.75})
+    def list_voices(self, params: Dict[str, Any] = None) -> Dict[str, Any]:
+        return {"success": True, "voices": self._voices, "count": len(self._voices)}

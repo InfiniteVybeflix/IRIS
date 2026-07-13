@@ -1,95 +1,143 @@
-"""IRIS v7 Chart Manager Skill — Data Visualization"""
+"""Chart Manager Skill — Generate charts, dashboards, and visualizations."""
+
+import json
 import base64
 import io
-import json
 import logging
-import os
-import threading
-from typing import Any, Dict, List, Optional
-
-from skills.base import BaseSkill, SkillCapability
-from skills.contracts.skill_request import SkillRequest
-from skills.contracts.skill_result import SkillResult
-from skills.contracts.capability_tags import CapabilityTags
+from typing import Dict, Any, List
+from skills import BaseSkill
 
 logger = logging.getLogger(__name__)
 
 
 class ChartManagerSkill(BaseSkill):
-    name = "chart_manager"
-    display_name = "Chart Manager"
-    description = "Data visualization engine — 15+ chart types, interactive Plotly/ECharts, multi-chart dashboards, real-time streaming, and export to PNG/SVG/PDF/HTML."
-    version = "7.0.0"
-    category = "productivity"
-    icon = "📊"
-    uses_storage = True
-    storage_dir = "data/skills/chart_manager"
-    storage_file = "data/skills/chart_manager/charts.json"
+    """Chart generation: bar, line, pie, scatter, heatmap, radar."""
 
-    capabilities = [
-        SkillCapability(name="create_chart", description="Create a chart", input_schema={"data": "list", "chart_type": "str"}, tags=[CapabilityTags.ANALYTICS]),
-        SkillCapability(name="create_dashboard", description="Create multi-chart dashboard", input_schema={"charts": "list"}, tags=[CapabilityTags.ANALYTICS]),
-        SkillCapability(name="create_gauge", description="Create gauge chart", input_schema={"value": "float", "max": "float"}, tags=[CapabilityTags.ANALYTICS]),
-        SkillCapability(name="create_heatmap", description="Create heatmap", input_schema={"data": "list"}, tags=[CapabilityTags.ANALYTICS]),
-        SkillCapability(name="export_chart", description="Export chart to file", input_schema={"chart": "dict", "format": "str"}, tags=[CapabilityTags.ANALYTICS]),
-        SkillCapability(name="streaming_update", description="Generate streaming chart update", input_schema={"series": "str", "x": "any", "y": "any"}, tags=[CapabilityTags.ANALYTICS]),
-    ]
+    def __init__(self):
+        super().__init__(
+            name="chart_manager",
+            category="productivity",
+            capabilities=["chart_generation"]
+        )
 
-    def execute(self, request):
-        intent = request.intent.lower()
-        p = request.params
+    def execute(self, capability: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        method = params.get("method", "create_chart")
+        if method == "create_chart":
+            return self.create_chart(params)
+        elif method == "create_dashboard":
+            return self.create_dashboard(params)
+        elif method == "export_png":
+            return self.export_png(params)
+        return {"error": f"Unknown method: {method}"}
+
+    def create_chart(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        chart_type = params.get("type", "bar")
+        title = params.get("title", "Chart")
+        labels = params.get("labels", [])
+        values = params.get("values", [])
+        datasets = params.get("datasets", [{"label": title, "data": values}])
+        x_label = params.get("x_label", "")
+        y_label = params.get("y_label", "")
+        if not labels and not any(d.get("data") for d in datasets):
+            return {"success": False, "error": "Provide labels+values or datasets"}
         try:
-            if "chart" in intent and "dashboard" not in intent: return self._chart(p.get("data", []), p.get("chart_type", "line"), p.get("title", "Chart"))
-            elif "dashboard" in intent: return self._dashboard(p.get("charts", []))
-            elif "gauge" in intent: return self._gauge(p.get("value", 0), p.get("max", 100), p.get("title", "Gauge"))
-            elif "heatmap" in intent: return self._heatmap(p.get("data", []), p.get("title", "Heatmap"))
-            elif "export" in intent: return self._export(p.get("chart", {}), p.get("format", "html"))
-            elif "stream" in intent: return self._stream(p.get("series", ""), p.get("x"), p.get("y"))
-            return SkillResult.fail(error=f"Unknown: {intent}")
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+            import numpy as np
+            fig, ax = plt.subplots(figsize=params.get("figsize", (10, 6)))
+            if chart_type == "bar":
+                x = np.arange(len(labels))
+                width = 0.8 / len(datasets)
+                for i, ds in enumerate(datasets):
+                    offset = (i - len(datasets)/2 + 0.5) * width
+                    ax.bar(x + offset, ds.get("data", values), width, label=ds.get("label", f"Series {i+1}"))
+                ax.set_xticks(x)
+                ax.set_xticklabels(labels, rotation=params.get("rotation", 0))
+            elif chart_type == "horizontal_bar":
+                ax.barh(labels, values)
+            elif chart_type == "line":
+                for ds in datasets:
+                    ax.plot(labels, ds.get("data", values), marker=params.get("marker", 'o'), label=ds.get("label", ""), linewidth=2)
+            elif chart_type == "pie":
+                colors = plt.cm.Set3(np.linspace(0, 1, len(labels)))
+                wedges, texts, autotexts = ax.pie(values, labels=labels, autopct='%1.1f%%', colors=colors, startangle=90)
+                for autotext in autotexts:
+                    autotext.set_color('white')
+                    autotext.set_weight('bold')
+            elif chart_type == "scatter":
+                x_vals = params.get("x_values", list(range(len(values))))
+                ax.scatter(x_vals, values, s=params.get("point_size", 50), alpha=0.7, c=params.get("colors", "blue"))
+            elif chart_type == "heatmap":
+                matrix = params.get("matrix", [values])
+                im = ax.imshow(matrix, cmap=params.get("colormap", "YlOrRd"), aspect='auto')
+                plt.colorbar(im, ax=ax)
+                ax.set_xticks(range(len(labels)))
+                ax.set_xticklabels(labels)
+            elif chart_type == "radar":
+                angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
+                angles += angles[:1]
+                ax.remove()
+                ax = fig.add_subplot(111, polar=True)
+                for ds in datasets:
+                    data = ds.get("data", values)
+                    data += data[:1]
+                    ax.plot(angles, data, 'o-', linewidth=2, label=ds.get("label", ""))
+                    ax.fill(angles, data, alpha=0.15)
+                ax.set_xticks(angles[:-1])
+                ax.set_xticklabels(labels)
+            elif chart_type == "area":
+                ax.fill_between(labels, values, alpha=0.4)
+                ax.plot(labels, values, linewidth=2)
+            elif chart_type == "histogram":
+                bins = params.get("bins", 10)
+                ax.hist(values, bins=bins, edgecolor='black', alpha=0.7)
+            ax.set_title(title, fontsize=14, fontweight='bold')
+            if x_label:
+                ax.set_xlabel(x_label)
+            if y_label:
+                ax.set_ylabel(y_label)
+            if len(datasets) > 1 or (datasets and datasets[0].get("label") and datasets[0]["label"] != title):
+                ax.legend()
+            plt.tight_layout()
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', dpi=params.get("dpi", 100), bbox_inches='tight')
+            plt.close(fig)
+            buf.seek(0)
+            b64 = base64.b64encode(buf.read()).decode('utf-8')
+            return {"success": True, "chart_type": chart_type, "title": title, "base64_png": b64, "data_points": sum(len(ds.get("data", [])) for ds in datasets)}
+        except ImportError:
+            # Fallback: generate HTML/JS chart
+            return self._create_html_chart(params)
         except Exception as e:
-            return SkillResult.fail(error=str(e))
+            logger.error(f"Chart creation failed: {e}")
+            return {"success": False, "error": str(e)}
 
-    def can_handle(self, request):
-        return 0.95 if any(k in request.intent.lower() for k in ["chart", "dashboard", "gauge", "heatmap", "visualization", "graph"]) else super().can_handle(request)
+    def _create_html_chart(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        chart_type = params.get("type", "bar")
+        title = params.get("title", "Chart")
+        labels = json.dumps(params.get("labels", []))
+        values = json.dumps(params.get("values", []))
+        html = f"""<!DOCTYPE html><html><head><script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script></head>
+<body><canvas id="c"></canvas><script>new Chart(document.getElementById('c').getContext('2d'),{{type:'{chart_type}',data:{{labels:{labels},datasets:[{{label:'{title}',data:{values}}}]}});</script></body></html>"""
+        return {"success": True, "chart_type": chart_type, "title": title, "html_chart": html, "backend": "chartjs"}
 
-    THEMES = {"dark": {"bg": "#0a0e27", "fg": "#00d4ff", "colors": ["#00d4ff", "#e94560", "#0f3460", "#533483", "#f39422"]}, "light": {"bg": "#ffffff", "fg": "#333333", "colors": ["#2196F3", "#f44336", "#4CAF50", "#FF9800", "#9C27B0"]}}
+    def create_dashboard(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        charts = params.get("charts", [])
+        layout = params.get("layout", "grid")
+        dashboard_charts = []
+        for chart_def in charts:
+            result = self.create_chart(chart_def)
+            dashboard_charts.append({"title": chart_def.get("title", ""), **result})
+        return {"success": True, "charts_included": len(dashboard_charts), "layout": layout, "charts": dashboard_charts, "dashboard_ready": True}
 
-    def _chart(self, data: list, chart_type: str, title: str) -> SkillResult:
-        if not data: return SkillResult.fail(error="Data required")
-        theme = self.THEMES["dark"]
-        labels = [str(d.get("label", d.get("x", i))) for i, d in enumerate(data)]
-        values = [d.get("value", d.get("y", 0)) for d in data]
-        # Simple ASCII representation + Plotly JSON
-        max_val = max(values) if values else 1
-        ascii_bars = "\n".join(f"  {l[:12]:12s} | {'#' * int(v / max_val * 30)} {v}" for l, v in zip(labels, values))
-        plotly_json = json.dumps({"data": [{"x": labels, "y": values, "type": chart_type, "marker": {"color": theme["colors"]}}], "layout": {"title": title, "paper_bgcolor": theme["bg"], "plot_bgcolor": theme["bg"], "font": {"color": theme["fg"]}}})
-        return SkillResult.ok(message=f"Chart: {title} ({chart_type})", data={"title": title, "type": chart_type, "plotly_json": plotly_json, "ascii": ascii_bars, "theme": "dark"})
-
-    def _dashboard(self, charts: list) -> SkillResult:
-        html_parts = [f"<div style='background:{c.get('theme','#0a0e27')};padding:10px;margin:5px;border-radius:5px;'><h3>{c.get('title','Chart')}</h3><pre>{c.get('ascii','')}</pre></div>" for c in charts]
-        dashboard_html = f"""<html><body style="background:#0f0f23;color:#c0c0e0;font-family:Arial;padding:20px;"><h1>IRIS Dashboard</h1><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px;">{''.join(html_parts)}</div></body></html>"""
-        return SkillResult.ok(message=f"Dashboard: {len(charts)} charts", data={"html": dashboard_html, "chart_count": len(charts)})
-
-    def _gauge(self, value: float, max_val: float, title: str) -> SkillResult:
-        pct = (value / max_val * 100) if max_val else 0
-        ascii_gauge = f"[{('#' * int(pct / 5)).ljust(20)}] {value:.1f}/{max_val}"
-        return SkillResult.ok(message=f"Gauge: {value}/{max_val}", data={"value": value, "max": max_val, "percent": round(pct, 1), "ascii": ascii_gauge})
-
-    def _heatmap(self, data: list, title: str) -> SkillResult:
-        if not data: return SkillResult.fail(error="Data required")
-        lines = [f"  {' '.join(f'{v:4d}' for v in row)}" for row in data]
-        return SkillResult.ok(message=f"Heatmap: {len(data)}x{len(data[0]) if data else 0}", data={"title": title, "rows": len(data), "cols": len(data[0]) if data else 0, "ascii": "\n".join(lines)})
-
-    def _export(self, chart: dict, fmt: str) -> SkillResult:
-        filepath = f"/tmp/iris_chart_{int(time.time())}.{fmt}"
-        if fmt == "html":
-            with open(filepath, "w") as f: f.write(chart.get("html", chart.get("plotly_json", "")))
-        elif fmt == "json":
-            with open(filepath, "w") as f: f.write(json.dumps(chart))
-        return SkillResult.ok(message=f"Exported: {filepath}", data={"filepath": filepath, "format": fmt})
-
-    def _stream(self, series: str, x, y) -> SkillResult:
-        return SkillResult.ok(message="Streaming update", data={"type": "update", "series": series, "x": x, "y": y, "timestamp": time.time()})
-
-    def background_tick(self):
-        return []
+    def export_png(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        chart_data = params.get("chart_data", {})
+        output_path = params.get("output_path", "chart.png")
+        result = self.create_chart(chart_data)
+        if result.get("success") and result.get("base64_png"):
+            import base64
+            with open(output_path, 'wb') as f:
+                f.write(base64.b64decode(result["base64_png"]))
+            return {"success": True, "output_path": output_path, "format": "png"}
+        return result

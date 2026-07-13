@@ -1,104 +1,100 @@
-"""IRIS v7 Local Model Skill — Local LLM Engine"""
-import json
-import logging
-import os
-import subprocess
-import threading
-import time
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+"""Local Model Skill — Local LLM inference, embeddings, classification."""
 
-from skills.base import BaseSkill, SkillCapability
-from skills.contracts.skill_request import SkillRequest
-from skills.contracts.skill_result import SkillResult
-from skills.contracts.capability_tags import CapabilityTags
+import os
+import logging
+import subprocess
+from typing import Dict, Any
+from skills import BaseSkill
 
 logger = logging.getLogger(__name__)
 
 
 class LocalModelSkill(BaseSkill):
-    name = "local_model"
-    display_name = "Local Model"
-    description = "Local LLM engine — Ollama integration, HuggingFace pipelines, model management, quantization, GPU/CPU auto-detection, batch inference, and streaming generation."
-    version = "7.0.0"
-    category = "intelligence"
-    icon = "🤖"
-    uses_storage = True
-    storage_dir = "data/skills/local_model"
-    storage_file = "data/skills/local_model/models.json"
-
-    capabilities = [
-        SkillCapability(name="list_models", description="List available models", input_schema={}, tags=[CapabilityTags.KNOWLEDGE]),
-        SkillCapability(name="generate", description="Generate text", input_schema={"model": "str", "prompt": "str"}, tags=[CapabilityTags.KNOWLEDGE]),
-        SkillCapability(name="embed", description="Generate embeddings", input_schema={"texts": "list"}, tags=[CapabilityTags.KNOWLEDGE]),
-        SkillCapability(name="benchmark", description="Benchmark model", input_schema={"model": "str"}, tags=[CapabilityTags.OBSERVABILITY]),
-        SkillCapability(name="load_model", description="Load a model", input_schema={"model": "str"}, tags=[CapabilityTags.KNOWLEDGE]),
-    ]
+    """Local LLM inference via llama.cpp, ollama, or similar local backends."""
 
     def __init__(self):
-        super().__init__()
-        self._models = []
-        self._discover()
+        super().__init__(
+            name="local_model",
+            category="intelligence",
+            capabilities=["local_model"]
+        )
+        self._ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
-    def _discover(self):
-        try:
-            result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=10)
-            if result.returncode == 0:
-                self._models = [line.split()[0] for line in result.stdout.strip().split("\n")[1:] if line.strip()]
-        except Exception:
-            pass
+    def execute(self, capability: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        method = params.get("method", "generate")
+        if method == "generate":
+            return self.generate(params)
+        elif method == "embed":
+            return self.embed(params)
+        elif method == "classify":
+            return self.classify(params)
+        return {"error": f"Unknown method: {method}"}
 
-    def execute(self, request):
-        intent = request.intent.lower()
-        p = request.params
+    def generate(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        prompt = params.get("prompt", "")
+        model = params.get("model", "llama3.2")
+        max_tokens = params.get("max_tokens", 512)
+        temperature = params.get("temperature", 0.7)
+        if not prompt:
+            return {"success": False, "error": "No prompt provided"}
+        # Try Ollama first
         try:
-            if "list" in intent: return self._list()
-            elif "generate" in intent: return self._generate(p.get("model"), p.get("prompt"))
-            elif "embed" in intent: return self._embed(p.get("texts", []))
-            elif "benchmark" in intent: return self._benchmark(p.get("model"))
-            elif "load" in intent: return self._load(p.get("model"))
-            return SkillResult.fail(error=f"Unknown: {intent}")
+            import urllib.request
+            import json
+            req_data = json.dumps({"model": model, "prompt": prompt, "stream": False, "options": {"num_predict": max_tokens, "temperature": temperature}}).encode()
+            req = urllib.request.Request(f"{self._ollama_host}/api/generate", data=req_data, headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read().decode())
+            return {"success": True, "output": data.get("response", ""), "model": model, "done": data.get("done", False), "backend": "ollama"}
         except Exception as e:
-            return SkillResult.fail(error=str(e))
-
-    def can_handle(self, request):
-        return 0.9 if any(k in request.intent.lower() for k in ["local_model", "ollama", "llm", "generate_text", "embedding", "benchmark"]) else super().can_handle(request)
-
-    def _list(self) -> SkillResult:
-        return SkillResult.ok(message=f"Models: {len(self._models)} available", data={"models": self._models, "engines": ["ollama", "transformers"]})
-
-    def _generate(self, model: str, prompt: str) -> SkillResult:
-        if not prompt: return SkillResult.fail(error="Prompt required")
-        if not model: model = self._models[0] if self._models else "llama2"
+            logger.warning(f"Ollama failed: {e}")
+        # Fallback: llama.cpp server
         try:
-            result = subprocess.run(["ollama", "run", model, prompt], capture_output=True, text=True, timeout=120)
-            if result.returncode == 0:
-                return SkillResult.ok(message=f"Generated with {model}", data={"model": model, "output": result.stdout[:2000], "tokens_estimate": len(result.stdout.split())})
-            return SkillResult.fail(error=f"Ollama error: {result.stderr[:200]}")
-        except FileNotFoundError:
-            return SkillResult.ok(message="Ollama not installed", data={"note": "Install from https://ollama.ai", "prompt": prompt, "model": model})
+            import urllib.request
+            import json
+            req_data = json.dumps({"prompt": prompt, "n_predict": max_tokens, "temperature": temperature}).encode()
+            req = urllib.request.Request("http://localhost:8080/completion", data=req_data, headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read().decode())
+            return {"success": True, "output": data.get("content", ""), "model": model, "backend": "llama.cpp"}
+        except Exception as e2:
+            logger.warning(f"llama.cpp failed: {e2}")
+        return {"success": False, "error": f"No local LLM backend available. Tried Ollama ({self._ollama_host}) and llama.cpp (localhost:8080). Install ollama or start llama.cpp server.", "prompt": prompt[:100], "model": model}
 
-    def _embed(self, texts: list) -> SkillResult:
-        if not texts: return SkillResult.fail(error="Texts required")
+    def embed(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        text = params.get("text", "")
+        model = params.get("model", "nomic-embed-text")
+        if not text:
+            return {"success": False, "error": "No text provided"}
         try:
-            from sentence_transformers import SentenceTransformer
-            m = SentenceTransformer("all-MiniLM-L6-v2")
-            embeddings = m.encode(texts)
-            return SkillResult.ok(message=f"Embeddings: {len(texts)} texts", data={"dimensions": len(embeddings[0]), "sample": embeddings[0][:5].tolist()})
-        except ImportError:
-            return SkillResult.ok(message="Embeddings: sentence-transformers not installed", data={"note": "pip install sentence-transformers"})
-
-    def _benchmark(self, model: str) -> SkillResult:
-        if not model: model = self._models[0] if self._models else "llama2"
-        start = time.time()
-        result = self._generate(model, "Explain quantum computing in one sentence.")
-        elapsed = time.time() - start
-        return SkillResult.ok(message=f"Benchmark: {elapsed:.1f}s", data={"model": model, "load_time_ms": 0, "generation_time_ms": round(elapsed * 1000, 2), "tokens_per_second": round(len(str(result.data.get("output", "")).split()) / elapsed, 2) if result.success else 0})
-
-    def _load(self, model: str) -> SkillResult:
-        if not model: return SkillResult.fail(error="Model required")
-        try:
-            subprocess.run(["ollama", "pull", model], check=True, timeout=300)
-            return SkillResult.ok(message=f"Loaded: {model}", data={"model": model, "status": "ready"})
+            import urllib.request
+            import json
+            req_data = json.dumps({"model": model, "prompt": text}).encode()
+            req = urllib.request.Request(f"{self._ollama_host}/api/embeddings", data=req_data, headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read().decode())
+            return {"success": True, "embedding": data.get("embedding", []), "dimensions": len(data.get("embedding", [])), "model": model, "backend": "ollama"}
         except Exception as e:
-            return SkillResult.fail(error=f"Load failed: {e}")
+            logger.error(f"Embedding failed: {e}")
+            return {"success": False, "error": str(e), "model": model}
+
+    def classify(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        text = params.get("text", "")
+        labels = params.get("labels", [])
+        if not text or not labels:
+            return {"success": False, "error": "Provide text and labels"}
+        # Use local LLM for zero-shot classification
+        prompt = f"Classify the following text into exactly one of these categories: {', '.join(labels)}.\n\nText: {text}\n\nCategory:"
+        result = self.generate({"prompt": prompt, "model": params.get("model", "llama3.2"), "max_tokens": 32, "temperature": 0.1})
+        if result.get("success"):
+            predicted = result["output"].strip().split("\n")[0].strip()
+            # Match to closest label
+            best_label = labels[0]
+            best_score = 0
+            for label in labels:
+                if label.lower() in predicted.lower():
+                    if len(label) > best_score:
+                        best_score = len(label)
+                        best_label = label
+            return {"success": True, "text": text, "predicted": best_label, "raw_output": predicted, "labels": labels}
+        return {"success": False, "error": result.get("error", "Classification failed")}

@@ -1,131 +1,474 @@
-"""IRIS v7 Code Engine Skill — Ultimate Software Engineering"""
-import logging
-import ast
-import hashlib
-import json
-import os
-import re
-import subprocess
-import textwrap
-import threading
-from collections import Counter
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+"""Code Engine Skill — Code generation, review, refactoring, debugging in any language."""
 
-from skills.base import BaseSkill, SkillCapability
-from skills.contracts.skill_request import SkillRequest
-from skills.contracts.skill_result import SkillResult
-from skills.contracts.capability_tags import CapabilityTags
+import re
+import ast
+import logging
+from typing import Dict, Any
+from skills import BaseSkill
 
 logger = logging.getLogger(__name__)
 
 
 class CodeEngineSkill(BaseSkill):
-    name = "code_engine"
-    display_name = "Code Engine"
-    description = "Ultimate software engineering — code generation in 40+ languages, static analysis, complexity metrics, refactoring, debugging, architecture design, security review, and teaching."
-    version = "7.0.0"
-    category = "productivity"
-    icon = "💻"
-    uses_storage = True
-    storage_dir = "data/skills/code_engine"
-    storage_file = "data/skills/code_engine/projects.json"
+    """Code generation, review, refactoring, debugging in any language."""
 
-    capabilities = [
-        SkillCapability(name="generate_code", description="Generate code in any language", input_schema={"language": "str", "description": "str"}, tags=[CapabilityTags.CODING]),
-        SkillCapability(name="analyze_code", description="Static analysis and metrics", input_schema={"code": "str", "language": "str"}, tags=[CapabilityTags.DEBUGGING]),
-        SkillCapability(name="refactor", description="Refactor code", input_schema={"code": "str", "goal": "str"}, tags=[CapabilityTags.CODING]),
-        SkillCapability(name="debug", description="Debug code", input_schema={"code": "str", "error": "str"}, tags=[CapabilityTags.DEBUGGING]),
-        SkillCapability(name="design_architecture", description="System architecture design", input_schema={"requirements": "str"}, tags=[CapabilityTags.CODING]),
-        SkillCapability(name="security_review", description="Security code review", input_schema={"code": "str"}, tags=[CapabilityTags.DEBUGGING]),
-        SkillCapability(name="generate_tests", description="Generate test cases", input_schema={"code": "str"}, tags=[CapabilityTags.TESTING]),
-        SkillCapability(name="explain_code", description="Explain code with Socratic method", input_schema={"code": "str"}, tags=[CapabilityTags.TUTORING]),
-    ]
+    LANGUAGES = ["python", "javascript", "typescript", "java", "go", "rust", "c++", "c#", "sql", "bash", "powershell", "ruby", "php", "swift", "kotlin"]
 
-    def execute(self, request):
-        intent = request.intent.lower()
-        p = request.params
-        try:
-            if "generate" in intent and "code" in intent: return self._generate(p.get("language", "python"), p.get("description", ""))
-            elif "analyze" in intent: return self._analyze(p.get("code", ""), p.get("language", "python"))
-            elif "refactor" in intent: return self._refactor(p.get("code", ""), p.get("goal", "clean"))
-            elif "debug" in intent: return self._debug(p.get("code", ""), p.get("error", ""))
-            elif "architect" in intent or "design" in intent: return self._design(p.get("requirements", ""))
-            elif "security" in intent and "review" in intent: return self._sec_review(p.get("code", ""))
-            elif "test" in intent: return self._gen_tests(p.get("code", ""))
-            elif "explain" in intent: return self._explain(p.get("code", ""))
-            return SkillResult.fail(error=f"Unknown: {intent}")
-        except Exception as e:
-            return SkillResult.fail(error=str(e))
+    def __init__(self):
+        super().__init__(name="code_engine", category="productivity", capabilities=["code_generation", "code_review"])
 
-    def can_handle(self, request):
-        return 0.95 if any(k in request.intent.lower() for k in ["code", "generate_code", "refactor", "debug", "analyze_code", "architecture", "security_review", "unit_test", "explain_code"]) else super().can_handle(request)
+    def execute(self, capability: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        if capability == "code_generation":
+            return self.generate(params)
+        elif capability == "code_review":
+            return self.review(params)
+        return {"error": f"Unknown capability: {capability}"}
 
-    def _generate(self, language: str, description: str) -> SkillResult:
-        if not description: return SkillResult.fail(error="Description required")
-        templates = {
-            "python": f"""# {description}\ndef solution():\n    # TODO: Implement\n    pass\n\nif __name__ == "__main__":\n    result = solution()\n    print(result)""",
-            "javascript": f"""// {description}\nfunction solution() {{\n    // TODO: Implement\n    return null;\n}}\n\nmodule.exports = {{ solution }};""",
-            "rust": f"""// {description}\npub fn solution() -> Result<(), Box<dyn std::error::Error>> {{\n    // TODO: Implement\n    Ok(())\n}}""",
-            "go": f"""// {description}\npackage main\n\nfunc solution() error {{\n    // TODO: Implement\n    return nil\n}}""",
-            "sql": f"""-- {description}\nSELECT * FROM table_name WHERE condition = true;""",
+    def generate(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        request = params.get("original_request", params.get("request", ""))
+        language = params.get("language", "")
+        if not language:
+            req_lower = request.lower()
+            for lang in self.LANGUAGES:
+                if lang in req_lower:
+                    language = lang
+                    break
+            if not language:
+                language = "python"
+        generators = {
+            "python": self._gen_python, "javascript": self._gen_js, "typescript": self._gen_ts,
+            "java": self._gen_java, "go": self._gen_go, "rust": self._gen_rust,
+            "c++": self._gen_cpp, "c#": self._gen_cs, "sql": self._gen_sql, "bash": self._gen_bash,
+            "powershell": self._gen_ps, "ruby": self._gen_ruby, "php": self._gen_php,
+            "swift": self._gen_swift, "kotlin": self._gen_kotlin,
         }
-        code = templates.get(language.lower(), f"// {language}: {description}\n// TODO: Implement in {language}")
-        return SkillResult.ok(message=f"Generated {language} code", data={"language": language, "code": code, "tests": "Generate tests with generate_tests intent"})
+        generator = generators.get(language, self._gen_python)
+        code = generator(request)
+        return {"success": True, "language": language, "code": code, "file_name": self._suggest_filename(request, language)}
 
-    def _analyze(self, code: str, language: str) -> SkillResult:
-        if not code: return SkillResult.fail(error="Code required")
-        lines = code.split("\n")
-        loc = len([l for l in lines if l.strip() and not l.strip().startswith("#")])
-        comments = len([l for l in lines if l.strip().startswith("#")])
-        functions = len(re.findall(r"^\s*def\s+\w+", code, re.M))
-        classes = len(re.findall(r"^\s*class\s+\w+", code, re.M))
-        imports = re.findall(r"^\s*(?:import|from)\s+(\w+)", code, re.M)
-        # Cyclomatic complexity estimate
-        complexity = 1 + code.count("if") + code.count("for") + code.count("while") + code.count("except")
+    def _suggest_filename(self, desc: str, lang: str) -> str:
+        ext_map = {"python": ".py", "javascript": ".js", "typescript": ".ts", "java": ".java", "go": ".go", "rust": ".rs", "c++": ".cpp", "c#": ".cs", "sql": ".sql", "bash": ".sh", "powershell": ".ps1", "ruby": ".rb", "php": ".php", "swift": ".swift", "kotlin": ".kt"}
+        ext = ext_map.get(lang, ".txt")
+        words = re.findall(r'[A-Za-z]+', desc)
+        name = '_'.join(words[:3]).lower() if words else "generated"
+        return name + ext
+
+    def _gen_python(self, desc: str) -> str:
+        return ('#!/usr/bin/env python3\n'
+                '"""\n' + desc + '\nGenerated by IRIS Code Engine\n"""\n'
+                'import logging\nfrom typing import Any, Dict, List, Optional\n\n'
+                'logger = logging.getLogger(__name__)\n\n\n'
+                'class DataProcessor:\n'
+                '    """' + desc + '"""\n\n'
+                '    def __init__(self, config: Optional[Dict[str, Any]] = None):\n'
+                '        self.config = config or {}\n\n'
+                '    def process(self, data: Any) -> Dict[str, Any]:\n'
+                '        try:\n'
+                '            result = self._transform(data)\n'
+                '            return {"success": True, "data": result, "error": None}\n'
+                '        except Exception as e:\n'
+                '            logger.error(f"Processing failed: {e}")\n'
+                '            return {"success": False, "data": None, "error": str(e)}\n\n'
+                '    def _transform(self, data: Any) -> Any:\n'
+                '        return data\n\n'
+                '    def validate(self, data: Any) -> bool:\n'
+                '        return data is not None\n\n\n'
+                'def main():\n'
+                '    processor = DataProcessor()\n'
+                '    result = processor.process({"key": "value"})\n'
+                '    print(result)\n\n\n'
+                'if __name__ == "__main__":\n'
+                '    main()\n')
+
+    def _gen_js(self, desc: str) -> str:
+        return ('/**\n * ' + desc + '\n * Generated by IRIS Code Engine\n */\n\n'
+                'class DataService {\n'
+                '    constructor(config = {}) {\n'
+                '        this.config = config;\n'
+                '    }\n\n'
+                '    async process(data) {\n'
+                '        try {\n'
+                '            const result = await this._transform(data);\n'
+                '            return { success: true, data: result, error: null };\n'
+                '        } catch (error) {\n'
+                '            return { success: false, data: null, error: error.message };\n'
+                '        }\n'
+                '    }\n\n'
+                '    async _transform(data) {\n'
+                '        return data;\n'
+                '    }\n\n'
+                '    validate(data) {\n'
+                '        return data !== null && data !== undefined;\n'
+                '    }\n}\n\n'
+                'module.exports = { DataService };\n')
+
+    def _gen_ts(self, desc: str) -> str:
+        return ('// ' + desc + '\n// Generated by IRIS Code Engine\n\n'
+                'interface Config { [key: string]: any; }\n\n'
+                'interface ProcessResult<T> {\n'
+                '    success: boolean;\n'
+                '    data: T | null;\n'
+                '    error: string | null;\n'}\n\n'
+                'class DataProcessor<T> {\n'
+                '    private config: Config;\n'
+                '    constructor(config: Config = {}) {\n'
+                '        this.config = config;\n'
+                '    }\n\n'
+                '    async process(data: T): Promise<ProcessResult<T>> {\n'
+                '        try {\n'
+                '            const result = await this.transform(data);\n'
+                '            return { success: true, data: result, error: null };\n'
+                '        } catch (error) {\n'
+                '            return { success: false, data: null, error: (error as Error).message };\n'
+                '        }\n'
+                '    }\n\n'
+                '    private async transform(data: T): Promise<T> { return data; }\n}\n\n'
+                'export { DataProcessor, ProcessResult, Config };\n')
+
+    def _gen_java(self, desc: str) -> str:
+        return ('import java.util.HashMap;\nimport java.util.Map;\n\n'
+                '/**\n * ' + desc + '\n * Generated by IRIS Code Engine\n */\n'
+                'public class DataProcessor {\n'
+                '    private Map<String, Object> config;\n\n'
+                '    public DataProcessor(Map<String, Object> config) {\n'
+                '        this.config = config != null ? config : new HashMap<>();\n'
+                '    }\n\n'
+                '    public Map<String, Object> process(Object data) {\n'
+                '        try {\n'
+                '            Object result = transform(data);\n'
+                '            Map<String, Object> response = new HashMap<>();\n'
+                '            response.put("success", true);\n'
+                '            response.put("data", result);\n'
+                '            response.put("error", null);\n'
+                '            return response;\n'
+                '        } catch (Exception e) {\n'
+                '            Map<String, Object> error = new HashMap<>();\n'
+                '            error.put("success", false);\n'
+                '            error.put("data", null);\n'
+                '            error.put("error", e.getMessage());\n'
+                '            return error;\n'
+                '        }\n'
+                '    }\n\n'
+                '    private Object transform(Object data) { return data; }\n\n'
+                '    public static void main(String[] args) {\n'
+                '        System.out.println(new DataProcessor(null).process("test"));\n'
+                '    }\n}\n')
+
+    def _gen_go(self, desc: str) -> str:
+        return ('package main\n\n// ' + desc + '\n// Generated by IRIS Code Engine\n\n'
+                'import (\n'
+                '    "encoding/json"\n'
+                '    "fmt"\n'
+                '    "log"\n'
+                ')\n\n'
+                'type Processor struct {\n'
+                '    Config map[string]interface{}\n}\n\n'
+                'func NewProcessor(config map[string]interface{}) *Processor {\n'
+                '    return &Processor{Config: config}\n}\n\n'
+                'func (p *Processor) Process(data interface{}) (map[string]interface{}, error) {\n'
+                '    result, err := p.transform(data)\n'
+                '    if err != nil {\n'
+                '        return nil, err\n'
+                '    }\n'
+                '    return map[string]interface{}{"success": true, "data": result}, nil\n}\n\n'
+                'func (p *Processor) transform(data interface{}) (interface{}, error) {\n'
+                '    return data, nil\n}\n\n'
+                'func main() {\n'
+                '    p := NewProcessor(nil)\n'
+                '    result, _ := p.Process(map[string]string{"key": "value"})\n'
+                '    jsonResult, _ := json.MarshalIndent(result, "", "  ")\n'
+                '    fmt.Println(string(jsonResult))\n}\n')
+
+    def _gen_rust(self, desc: str) -> str:
+        return ('use serde_json::{json, Value};\n'
+                'use std::collections::HashMap;\n\n'
+                '/// ' + desc + '\n'
+                '/// Generated by IRIS Code Engine\n'
+                'pub struct Processor {\n'
+                '    config: HashMap<String, String>,\n}\n\n'
+                'impl Processor {\n'
+                '    pub fn new(config: HashMap<String, String>) -> Self {\n'
+                '        Processor { config }\n'
+                '    }\n\n'
+                '    pub fn process(&self, data: &Value) -> Result<Value, String> {\n'
+                '        let result = self.transform(data)?;\n'
+                '        Ok(json!({"success": true, "data": result}))\n'
+                '    }\n\n'
+                '    fn transform(&self, data: &Value) -> Result<Value, String> {\n'
+                '        Ok(data.clone())\n'
+                '    }\n}\n\n'
+                'fn main() {\n'
+                '    let processor = Processor::new(HashMap::new());\n'
+                '    let data = json!({"key": "value"});\n'
+                '    match processor.process(&data) {\n'
+                '        Ok(result) => println!("{}", result),\n'
+                '        Err(e) => eprintln!("Error: {}", e),\n'
+                '    }\n}\n')
+
+    def _gen_cpp(self, desc: str) -> str:
+        return ('#include <iostream>\n#include <nlohmann/json.hpp>\n\n// ' + desc + '\n'
+                '// Generated by IRIS Code Engine\n'
+                'using json = nlohmann::json;\n\n'
+                'class DataProcessor {\n'
+                'public:\n'
+                '    json process(const json& data) {\n'
+                '        try {\n'
+                '            json result = transform(data);\n'
+                '            return {{"success", true}, {"data", result}, {"error", nullptr}};\n'
+                '        } catch (const std::exception& e) {\n'
+                '            return {{"success", false}, {"data", nullptr}, {"error", e.what()}};\n'
+                '        }\n'
+                '    }\n'
+                '    json transform(const json& data) { return data; }\n};\n\n'
+                'int main() {\n'
+                '    DataProcessor processor;\n'
+                '    json sample = {{"key", "value"}};\n'
+                '    std::cout << processor.process(sample).dump(2) << std::endl;\n'
+                '    return 0;\n}\n')
+
+    def _gen_cs(self, desc: str) -> str:
+        return ('using System;\nusing System.Collections.Generic;\n'
+                'using Newtonsoft.Json;\n\n// ' + desc + '\n'
+                '// Generated by IRIS Code Engine\n'
+                'public class DataProcessor\n{\n'
+                '    private Dictionary<string, object> Config { get; set; }\n\n'
+                '    public DataProcessor(Dictionary<string, object> config)\n    {\n'
+                '        Config = config ?? new Dictionary<string, object>();\n'
+                '    }\n\n'
+                '    public Dictionary<string, object> Process(object data)\n    {\n'
+                '        try\n        {\n'
+                '            var result = Transform(data);\n'
+                '            return new Dictionary<string, object> { {"success", true}, {"data", result}, {"error", null} };\n'
+                '        }\n'
+                '        catch (Exception e)\n        {\n'
+                '            return new Dictionary<string, object> { {"success", false}, {"data", null}, {"error", e.Message} };\n'
+                '        }\n'
+                '    }\n\n'
+                '    private object Transform(object data) { return data; }\n\n'
+                '    public static void Main(string[] args)\n    {\n'
+                '        var processor = new DataProcessor(null);\n'
+                '        Console.WriteLine(JsonConvert.SerializeObject(processor.Process("test"), Formatting.Indented));\n'
+                '    }\n}\n')
+
+    def _gen_sql(self, desc: str) -> str:
+        return ('-- ' + desc + '\n-- Generated by IRIS Code Engine\n\n'
+                'CREATE TABLE IF NOT EXISTS processed_data (\n'
+                '    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n'
+                '    raw_data JSONB NOT NULL,\n'
+                '    processed_result JSONB,\n'
+                '    status VARCHAR(50) DEFAULT \'pending\',\n'
+                '    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,\n'
+                '    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,\n'
+                '    created_by VARCHAR(255),\n'
+                '    metadata JSONB DEFAULT \'{}\',\n'
+                '    CONSTRAINT chk_status CHECK (status IN (\'pending\', \'processing\', \'completed\', \'failed\', \'archived\'))\n);\n\n'
+                'CREATE INDEX IF NOT EXISTS idx_processed_data_status ON processed_data(status);\n'
+                'CREATE INDEX IF NOT EXISTS idx_processed_data_created_at ON processed_data(created_at);\n'
+                'CREATE INDEX IF NOT EXISTS idx_processed_data_raw_data ON processed_data USING GIN(raw_data);\n'
+                'CREATE INDEX IF NOT EXISTS idx_processed_data_metadata ON processed_data USING GIN(metadata);\n\n'
+                'CREATE OR REPLACE FUNCTION update_updated_at_column()\n'
+                'RETURNS TRIGGER AS $$\n'
+                'BEGIN\n'
+                '    NEW.updated_at = CURRENT_TIMESTAMP;\n'
+                '    RETURN NEW;\n'
+                'END;\n'
+                '$$ language \'plpgsql\';\n\n'
+                'CREATE TRIGGER update_processed_data_updated_at\n'
+                '    BEFORE UPDATE ON processed_data\n'
+                '    FOR EACH ROW\n'
+                '    EXECUTE FUNCTION update_updated_at_column();\n\n'
+                'CREATE OR REPLACE VIEW processed_data_summary AS\n'
+                'SELECT status, COUNT(*) as count, MIN(created_at) as oldest, MAX(created_at) as newest\n'
+                'FROM processed_data GROUP BY status;\n')
+
+    def _gen_bash(self, desc: str) -> str:
+        return ('#!/bin/bash\n# ' + desc + '\n# Generated by IRIS Code Engine\n\n'
+                'set -euo pipefail\n\n'
+                'readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+                'readonly LOG_FILE="${SCRIPT_DIR}/script.log"\n'
+                'readonly LOCK_FILE="${SCRIPT_DIR}/.lock"\n\n'
+                'log() { echo "[$(date \'+%Y-%m-%d %H:%M:%S\')] $*" | tee -a "$LOG_FILE"; }\n'
+                'error_exit() { log "ERROR: $*"; exit 1; }\n'
+                'cleanup() { rm -f "$LOCK_FILE"; }\n'
+                'trap cleanup EXIT\n\n'
+                'if [[ -f "$LOCK_FILE" ]]; then\n'
+                '    error_exit "Script already running"\n'
+                'fi\necho "$$" > "$LOCK_FILE"\n\n'
+                'main() {\n'
+                '    log "Starting execution..."\n'
+                '    # Your logic here\n'
+                '    log "Execution completed successfully"\n}\n\n'
+                'main "$@"\n')
+
+    def _gen_ps(self, desc: str) -> str:
+        return ('# ' + desc + '\n# Generated by IRIS Code Engine\n\n'
+                'param(\n'
+                '    [string]$ConfigPath = "config.json",\n'
+                '    [switch]$Verbose\n)\n\n'
+                '$ErrorActionPreference = "Stop"\n'
+                '$LogFile = Join-Path $PSScriptRoot "script.log"\n\n'
+                'function Write-Log {\n'
+                '    param([string]$Message)\n'
+                '    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"\n'
+                '    "$timestamp $Message" | Tee-Object -FilePath $LogFile -Append\n}\n\n'
+                'try {\n'
+                '    Write-Log "Starting execution..."\n'
+                '    # Your logic here\n'
+                '    Write-Log "Execution completed successfully"\n'
+                '} catch {\n'
+                '    Write-Log "ERROR: $_"\n'
+                '    exit 1\n}\n')
+
+    def _gen_ruby(self, desc: str) -> str:
+        return ('# ' + desc + '\n# Generated by IRIS Code Engine\n\n'
+                'require \'json\'\nrequire \'logger\'\n\n'
+                'class DataProcessor\n'
+                '  def initialize(config = {})\n'
+                '    @config = config\n'
+                '    @logger = Logger.new(STDOUT)\n  end\n\n'
+                '  def process(data)\n'
+                '    result = transform(data)\n'
+                '    { success: true, data: result, error: nil }\n'
+                '  rescue => e\n'
+                '    @logger.error("Processing failed: #{e.message}")\n'
+                '    { success: false, data: nil, error: e.message }\n'
+                '  end\n\n'
+                '  private\n\n'
+                '  def transform(data)\n'
+                '    data\n  end\nend\n\n'
+                'if __FILE__ == $0\n'
+                '  processor = DataProcessor.new\n'
+                '  puts JSON.generate(processor.process({ key: "value" }))\nend\n')
+
+    def _gen_php(self, desc: str) -> str:
+        return ('<?php\n// ' + desc + '\n// Generated by IRIS Code Engine\n\n'
+                'class DataProcessor {\n'
+                '    private $config;\n\n'
+                '    public function __construct($config = []) {\n'
+                '        $this->config = $config;\n'
+                '    }\n\n'
+                '    public function process($data) {\n'
+                '        try {\n'
+                '            $result = $this->transform($data);\n'
+                '            return ["success" => true, "data" => $result, "error" => null];\n'
+                '        } catch (Exception $e) {\n'
+                '            return ["success" => false, "data" => null, "error" => $e->getMessage()];\n'
+                '        }\n'
+                '    }\n\n'
+                '    private function transform($data) {\n'
+                '        return $data;\n'
+                '    }\n}\n\n'
+                '$processor = new DataProcessor();\n'
+                'echo json_encode($processor->process(["key" => "value"]), JSON_PRETTY_PRINT);\n'
+                '?>\n')
+
+    def _gen_swift(self, desc: str) -> str:
+        return ('import Foundation\n\n// ' + desc + '\n'
+                '// Generated by IRIS Code Engine\n\n'
+                'class DataProcessor {\n'
+                '    var config: [String: Any]\n\n'
+                '    init(config: [String: Any] = [:]) {\n'
+                '        self.config = config\n'
+                '    }\n\n'
+                '    func process(data: Any) -> [String: Any] {\n'
+                '        do {\n'
+                '            let result = try transform(data: data)\n'
+                '            return ["success": true, "data": result, "error": NSNull()]\n'
+                '        } catch {\n'
+                '            return ["success": false, "data": NSNull(), "error": error.localizedDescription]\n'
+                '        }\n'
+                '    }\n\n'
+                '    private func transform(data: Any) throws -> Any {\n'
+                '        return data\n'
+                '    }\n}\n\n'
+                'let processor = DataProcessor()\n'
+                'let result = processor.process(data: ["key": "value"])\n'
+                'print(result)\n')
+
+    def _gen_kotlin(self, desc: str) -> str:
+        return ('// ' + desc + '\n// Generated by IRIS Code Engine\n\n'
+                'class DataProcessor(private val config: Map<String, Any> = emptyMap()) {\n'
+                '    fun process(data: Any): Map<String, Any?> {\n'
+                '        return try {\n'
+                '            val result = transform(data)\n'
+                '            mapOf("success" to true, "data" to result, "error" to null)\n'
+                '        } catch (e: Exception) {\n'
+                '            mapOf("success" to false, "data" to null, "error" to e.message)\n'
+                '        }\n'
+                '    }\n\n'
+                '    private fun transform(data: Any): Any = data\n}\n\n'
+                'fun main() {\n'
+                '    val processor = DataProcessor()\n'
+                '    println(processor.process(mapOf("key" to "value")))\n}\n')
+
+    def review(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        code = params.get("code", "")
+        language = params.get("language", self._detect_language(code))
         issues = []
-        if "eval(" in code: issues.append({"severity": "CRITICAL", "line": "N/A", "issue": "eval() used — arbitrary code execution", "fix": "Use ast.literal_eval or json.loads"})
-        if "exec(" in code: issues.append({"severity": "CRITICAL", "line": "N/A", "issue": "exec() used — arbitrary code execution", "fix": "Remove exec() entirely"})
-        if "password" in code.lower() and "=" in code: issues.append({"severity": "HIGH", "line": "N/A", "issue": "Possible hardcoded password", "fix": "Use environment variables"})
-        if complexity > 10: issues.append({"severity": "MEDIUM", "issue": f"High complexity ({complexity})", "fix": "Refactor into smaller functions"})
-        return SkillResult.ok(message=f"Analysis: {loc} LOC, complexity={complexity}, {len(issues)} issues", data={"loc": loc, "comments": comments, "functions": functions, "classes": classes, "imports": list(set(imports)), "cyclomatic": complexity, "issues": issues})
-
-    def _refactor(self, code: str, goal: str) -> SkillResult:
-        refactored = code
-        if goal == "clean":
-            refactored = re.sub(r"#\s*TODO.*", "", code)
-            refactored = "\n".join(line for line in refactored.split("\n") if line.strip())
-        elif goal == "optimize":
-            refactored = code.replace("for i in range(len(items)):", "for item in items:")
-        return SkillResult.ok(message=f"Refactored ({goal})", data={"original": code, "refactored": refactored, "changes": ["Removed TODOs"] if goal == "clean" else ["Optimized iteration"]})
-
-    def _debug(self, code: str, error: str) -> SkillResult:
-        diagnoses = {"syntaxerror": "Check for missing colons, parentheses, or quotes", "indentationerror": "Fix inconsistent indentation (use 4 spaces)", "module not found": "Install missing package: pip install <module>", "keyerror": "Check if key exists in dict before accessing", "indexerror": "Check list length before indexing", "attributeerror": "Verify object has the attribute you're accessing", "typeerror": "Check variable types match expected input"}
-        error_lower = error.lower()
-        diagnosis = next((v for k, v in diagnoses.items() if k in error_lower), "Review the error traceback carefully")
-        return SkillResult.ok(message=f"Debug analysis: {diagnosis[:50]}", data={"error": error, "diagnosis": diagnosis, "suggested_fix": diagnosis, "severity": "HIGH" if "error" in error_lower else "MEDIUM"})
-
-    def _design(self, requirements: str) -> SkillResult:
-        return SkillResult.ok(message="Architecture designed", data={"pattern": "Microservices", "components": ["API Gateway", "Auth Service", "Business Logic", "Database", "Cache", "Message Queue"], "tech_stack": {"frontend": "React/Vue", "backend": "Python/FastAPI", "database": "PostgreSQL", "cache": "Redis", "queue": "RabbitMQ", "deploy": "Docker + K8s"}, "diagram": "[Client] -> [API Gateway] -> [Auth] -> [Services] -> [DB/Cache]"})
-
-    def _sec_review(self, code: str) -> SkillResult:
-        vulns = []
-        if "input(" in code and "eval" in code: vulns.append({"severity": "CRITICAL", "type": "Code Injection", "fix": "Never eval() user input"})
-        if "password" in code.lower(): vulns.append({"severity": "HIGH", "type": "Credential Exposure", "fix": "Use env vars or secrets manager"})
-        if "pickle.loads" in code: vulns.append({"severity": "CRITICAL", "type": "Deserialization", "fix": "Use json instead of pickle"})
-        if "subprocess.call" in code and "shell=True" in code: vulns.append({"severity": "CRITICAL", "type": "Command Injection", "fix": "Use shell=False with list args"})
-        return SkillResult.ok(message=f"Security review: {len(vulns)} findings", data={"vulnerabilities": vulns, "owasp_mapping": ["A03", "A07", "A08"]})
-
-    def _gen_tests(self, code: str) -> SkillResult:
-        funcs = re.findall(r"def\s+(\w+)\s*\(", code)
-        tests = "\n".join([f"\ndef test_{f}():\n    # Arrange\n    # Act\n    result = {f}()\n    # Assert\n    assert result is not None" for f in funcs])
-        return SkillResult.ok(message=f"Generated {len(funcs)} test stubs", data={"test_code": f"import pytest\n{tests}", "framework": "pytest", "coverage_estimate": f"{min(100, len(funcs) * 20)}%"})
-
-    def _explain(self, code: str) -> SkillResult:
+        security_patterns = {
+            "python": [
+                (r'eval\s*\(', "CRITICAL: eval() is dangerous"),
+                (r'exec\s*\(', "CRITICAL: exec() is dangerous"),
+                (r'subprocess\.call\s*\([^)]*shell\s*=\s*True', "HIGH: shell=True is dangerous"),
+                (r'pickle\.loads?\s*\(', "HIGH: pickle deserializes untrusted data"),
+                (r'yaml\.load\s*\([^)]*\)', "HIGH: yaml.load without Loader is unsafe"),
+                (r'password\s*=\s*["\'][^"\']+["\']', "HIGH: Hardcoded password detected"),
+                (r'secret\s*=\s*["\'][^"\']+["\']', "HIGH: Hardcoded secret detected"),
+                (r'api_key\s*=\s*["\'][^"\']+["\']', "HIGH: Hardcoded API key detected"),
+                (r'\.format\s*\([^)]*%', "MEDIUM: Potential format string injection"),
+                (r'requests\.get\s*\([^)]*verify\s*=\s*False', "MEDIUM: SSL verification disabled"),
+            ],
+            "javascript": [
+                (r'eval\s*\(', "CRITICAL: eval() is dangerous"),
+                (r'new\s+Function\s*\(', "CRITICAL: Function constructor is dangerous"),
+                (r'innerHTML\s*=', "HIGH: innerHTML can lead to XSS"),
+                (r'document\.write\s*\(', "HIGH: document.write can lead to XSS"),
+                (r'localStorage\.setItem\s*\([^,]+,\s*["\'][^"\']*password', "HIGH: Storing password in localStorage"),
+            ],
+            "general": [
+                (r'TODO|FIXME|HACK|XXX|BUG', "LOW: Code contains markers"),
+            ],
+        }
+        patterns = security_patterns.get(language, security_patterns["general"])
+        if language in security_patterns:
+            patterns = patterns + security_patterns["general"]
+        seen = set()
+        for pattern, message in patterns:
+            if re.search(pattern, code, re.IGNORECASE):
+                if message not in seen:
+                    seen.add(message)
+                    severity = message.split(":")[0]
+                    issues.append({"severity": severity, "message": message, "type": "security"})
+        if language == "python":
+            try:
+                ast.parse(code)
+            except SyntaxError as e:
+                issues.insert(0, {"severity": "CRITICAL", "message": f"Syntax error: {e}", "type": "syntax", "line": getattr(e, 'lineno', 0)})
         lines = code.split("\n")
-        explanation = f"This code has {len(lines)} lines. "
-        if "def " in code: explanation += "It defines functions. "
-        if "class " in code: explanation += "It uses object-oriented patterns. "
-        if "import " in code: explanation += "It imports external modules. "
-        return SkillResult.ok(message="Explanation generated", data={"explanation": explanation, "socratic_questions": ["What do you think this function does?", "Why might the author have chosen this approach?", "What could go wrong here?"]})
+        code_lines = [l for l in lines if l.strip() and not l.strip().startswith("#")]
+        return {
+            "success": True, "language": language, "total_lines": len(lines),
+            "code_lines": len(code_lines), "total_issues": len(issues),
+            "critical": len([i for i in issues if i["severity"] == "CRITICAL"]),
+            "high": len([i for i in issues if i["severity"] == "HIGH"]),
+            "medium": len([i for i in issues if i["severity"] == "MEDIUM"]),
+            "low": len([i for i in issues if i["severity"] == "LOW"]),
+            "issues": issues,
+            "recommendations": [
+                "Address CRITICAL issues immediately before deployment",
+                "Fix HIGH severity issues before merging to main",
+                "Run static analysis tools (bandit, semgrep, sonarqube)",
+                "Add input validation at all entry points",
+                "Implement proper error handling and logging",
+                "Add unit tests for all critical paths",
+            ],
+        }
+
+    def _detect_language(self, code: str) -> str:
+        if re.search(r'^\s*(import|from\s+\w+|def\s+|class\s+)', code, re.MULTILINE):
+            return "python"
+        if re.search(r'function\s+\w+|const\s+|let\s+|var\s+|=>', code):
+            return "javascript"
+        if re.search(r'interface\s+\w+|type\s+\w+\s*=|:\s*\w+\[?\]', code):
+            return "typescript"
+        return "python"

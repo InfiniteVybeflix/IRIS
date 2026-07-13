@@ -1,88 +1,234 @@
-"""IRIS v7 Research Engine Skill — Autonomous R&D & Learning"""
-import json
-import logging
-import os
-import re
-import sqlite3
-import threading
-import time
-import urllib.request
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+"""Research Engine Skill — Web search, URL fetching, academic search, image search."""
 
-from skills.base import BaseSkill, SkillCapability
-from skills.contracts.skill_request import SkillRequest
-from skills.contracts.skill_result import SkillResult
-from skills.contracts.capability_tags import CapabilityTags
+import re
+import json
+import urllib.request
+import urllib.parse
+import urllib.error
+import logging
+import base64
+import io
+from typing import Dict, Any, List, Optional
+from skills import BaseSkill
 
 logger = logging.getLogger(__name__)
 
 
 class ResearchEngineSkill(BaseSkill):
-    name = "research_engine"
-    display_name = "Research Engine"
-    description = "Autonomous R&D — CVE tracking, technology comparison, literature review, PoC generation, patent search, and technical blog generation."
-    version = "7.0.0"
-    category = "intelligence"
-    icon = "🔬"
-    uses_storage = True
-    storage_dir = "data/skills/research_engine"
-    storage_file = "data/skills/research_engine/research.db"
+    """Web search with multi-query support, URL content extraction, academic paper search, and image search."""
 
-    capabilities = [
-        SkillCapability(name="research_cve", description="Research latest CVEs", input_schema={"keyword": "str"}, tags=[CapabilityTags.RESEARCH]),
-        SkillCapability(name="compare_tech", description="Compare technologies", input_schema={"tech_a": "str", "tech_b": "str"}, tags=[CapabilityTags.RESEARCH]),
-        SkillCapability(name="literature_review", description="Generate literature review", input_schema={"topic": "str"}, tags=[CapabilityTags.RESEARCH]),
-        SkillCapability(name="generate_poc", description="Generate proof of concept", input_schema={"technique": "str"}, tags=[CapabilityTags.CODING]),
-        SkillCapability(name="tech_trends", description="Analyze technology trends", input_schema={"field": "str"}, tags=[CapabilityTags.RESEARCH]),
-    ]
+    def __init__(self):
+        super().__init__(
+            name="research_engine",
+            category="intelligence",
+            capabilities=["web_search", "url_fetch", "image_search_text", "image_search_image", "academic_search"]
+        )
+        self._user_agent = "IRIS-OMNIS/1.0 (Research Engine)"
+        self._cache: Dict[str, Any] = {}
+        self._search_history: List[Dict[str, Any]] = []
 
-    def execute(self, request):
-        intent = request.intent.lower()
-        p = request.params
+    def execute(self, capability: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        if capability == "web_search":
+            return self.search(params)
+        elif capability == "url_fetch":
+            return self.fetch(params)
+        elif capability == "image_search_text":
+            return self.search_by_text(params)
+        elif capability == "image_search_image":
+            return self.search_by_image(params)
+        elif capability == "academic_search":
+            return self.academic_search(params)
+        return {"error": f"Unknown capability: {capability}"}
+
+    def search(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        queries = params.get("query", params.get("queries", ""))
+        if isinstance(queries, str):
+            queries = [queries]
+        all_results = []
+        cache_key = "search:" + "|".join(queries)
+        if cache_key in self._cache and not params.get("no_cache"):
+            return self._cache[cache_key]
+        for query in queries:
+            try:
+                results = self._search_single(query, params.get("max_results_per_query", 10))
+                all_results.extend(results)
+            except Exception as e:
+                logger.error(f"Search error for '{query}': {e}")
+                all_results.append({"query": query, "error": str(e), "source": "error"})
+        self._search_history.append({"queries": queries, "results": len(all_results), "timestamp": __import__('datetime').datetime.utcnow().isoformat()})
+        deduped = self._deduplicate_results(all_results)
+        result = {"queries": queries, "results_count": len(deduped), "results": deduped[:params.get("max_results", 20)]}
+        self._cache[cache_key] = result
+        return result
+
+    def _search_single(self, query: str, max_results: int = 10) -> List[Dict[str, str]]:
+        encoded = urllib.parse.quote(query)
+        results = []
         try:
-            if "cve" in intent: return self._cve(p.get("keyword", ""))
-            elif "compare" in intent: return self._compare(p.get("tech_a"), p.get("tech_b"))
-            elif "literature" in intent: return self._literature(p.get("topic"))
-            elif "poc" in intent: return self._poc(p.get("technique"))
-            elif "trend" in intent: return self._trends(p.get("field"))
-            return SkillResult.fail(error=f"Unknown: {intent}")
+            url = f"https://html.duckduckgo.com/html/?q={encoded}"
+            req = urllib.request.Request(url, headers={"User-Agent": self._user_agent, "Accept": "text/html", "Accept-Language": "en-US,en;q=0.9"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+            snippets = re.findall(r'<a class="result__snippet"[^>]*>(.*?)</a>', html, re.DOTALL)
+            titles = re.findall(r'<a class="result__a"[^>]*>(.*?)</a>', html, re.DOTALL)
+            links = re.findall(r'<a rel="nofollow" class="result__a" href="([^"]+)"', html)
+            for i in range(min(len(titles), len(snippets), max_results)):
+                clean_title = re.sub(r'<[^>]+>', '', titles[i]).strip()
+                clean_snippet = re.sub(r'<[^>]+>', '', snippets[i]).strip()
+                results.append({"title": clean_title, "snippet": clean_snippet[:300], "url": links[i] if i < len(links) else "", "source": "duckduckgo", "query": query})
         except Exception as e:
-            return SkillResult.fail(error=str(e))
+            logger.error(f"DuckDuckGo search failed: {e}")
+        if not results:
+            try:
+                bing_url = f"https://www.bing.com/search?q={encoded}&count={max_results}"
+                req = urllib.request.Request(bing_url, headers={"User-Agent": self._user_agent, "Accept": "text/html"})
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    html = resp.read().decode("utf-8", errors="replace")
+                bing_results = re.findall(r'<li class="b_algo"[^>]*>.*?<h2><a href="([^"]+)"[^>]*>(.*?)</a></h2>.*?<p>(.*?)</p>', html, re.DOTALL)
+                for url, title, snippet in bing_results[:max_results]:
+                    results.append({"title": re.sub(r'<[^>]+>', '', title).strip(), "snippet": re.sub(r'<[^>]+>', '', snippet).strip()[:300], "url": url, "source": "bing", "query": query})
+            except Exception as e2:
+                logger.error(f"Bing fallback failed: {e2}")
+        return results
 
-    def can_handle(self, request):
-        return 0.9 if any(k in request.intent.lower() for k in ["research", "cve", "compare_tech", "literature", "poc", "trend"]) else super().can_handle(request)
+    def fetch(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        urls = params.get("url", params.get("urls", []))
+        if isinstance(urls, str):
+            urls = [urls]
+        extract_type = params.get("extract", "full")
+        results = []
+        for url in urls:
+            try:
+                content = self._fetch_single(url, extract_type)
+                results.append({"url": url, **content})
+            except Exception as e:
+                results.append({"url": url, "error": str(e)})
+        return {"urls_processed": len(urls), "results": results}
 
-    def _cve(self, keyword: str) -> SkillResult:
+    def _fetch_single(self, url: str, extract_type: str = "full") -> Dict[str, Any]:
+        req = urllib.request.Request(url, headers={"User-Agent": self._user_agent, "Accept": "text/html,application/xhtml+xml", "Accept-Language": "en-US,en;q=0.9"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            content = resp.read()
+            charset = resp.headers.get_content_charset() or "utf-8"
+            text = content.decode(charset, errors="replace")
+        title_match = re.search(r'<title[^>]*>(.*?)</title>', text, re.IGNORECASE | re.DOTALL)
+        title = re.sub(r'\s+', ' ', title_match.group(1).strip()) if title_match else ""
+        result: Dict[str, Any] = {"title": title, "size_bytes": len(content), "status": "ok"}
+        if extract_type in ("full", "text"):
+            body_match = re.search(r'<body[^>]*>(.*?)</body>', text, re.IGNORECASE | re.DOTALL)
+            if body_match:
+                body_text = re.sub(r'<script[^>]*>.*?</script>', ' ', body_match.group(1), flags=re.DOTALL | re.IGNORECASE)
+                body_text = re.sub(r'<style[^>]*>.*?</style>', ' ', body_text, flags=re.DOTALL | re.IGNORECASE)
+                body_text = re.sub(r'<[^>]+>', ' ', body_text)
+                body_text = re.sub(r'\s+', ' ', body_text).strip()
+                result["text"] = body_text[:8000]
+        if extract_type in ("full", "links"):
+            result["links"] = list(set(re.findall(r'href="(https?://[^"]+)"', text)))[:30]
+        if extract_type in ("full", "meta"):
+            meta_desc = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\']+)', text, re.IGNORECASE)
+            result["meta_description"] = meta_desc.group(1) if meta_desc else ""
+        return result
+
+    def search_by_text(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        query = params.get("query", "")
+        provider = params.get("provider", "unsplash")
+        max_results = params.get("max_results", 10)
+        results = []
         try:
-            url = f"https://cve.circl.lu/api/search/{urllib.request.quote(keyword)}" if keyword else "https://cve.circl.lu/api/last"
-            req = urllib.request.Request(url, headers={"User-Agent": "IRIS-Research/7.0"})
-            with urllib.request.urlopen(req, timeout=15) as r:
-                data = json.loads(r.read().decode())
-                cves = data[:10] if isinstance(data, list) else [data] if isinstance(data, dict) else []
-                return SkillResult.ok(message=f"CVE research: {len(cves)} results", data={"keyword": keyword, "cves": [{"id": c.get("id"), "summary": c.get("summary", "N/A")[:200], "cvss": c.get("cvss", "N/A")} for c in cves]})
+            encoded = urllib.parse.quote(query)
+            if provider == "unsplash":
+                url = f"https://unsplash.com/s/photos/{encoded}"
+                req = urllib.request.Request(url, headers={"User-Agent": self._user_agent})
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    html = resp.read().decode("utf-8", errors="replace")
+                images = re.findall(r'<img[^>]*src="(https://images\.unsplash\.com/[^"]+)"[^>]*>', html)
+                for img_url in images[:max_results]:
+                    results.append({"url": img_url, "source": "unsplash", "query": query})
+            elif provider == "pexels":
+                url = f"https://www.pexels.com/search/{encoded}/"
+                req = urllib.request.Request(url, headers={"User-Agent": self._user_agent})
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    html = resp.read().decode("utf-8", errors="replace")
+                images = re.findall(r'src="(https://images\.pexels\.com/[^"]+)"', html)
+                for img_url in images[:max_results]:
+                    results.append({"url": img_url, "source": "pexels", "query": query})
         except Exception as e:
-            return SkillResult.ok(message=f"CVE offline mode", data={"keyword": keyword, "note": f"API error: {e}", "recent_cves": [{"id": "CVE-2024-0001", "summary": "Placeholder critical vulnerability", "cvss": 9.8}]})
+            logger.error(f"Image search failed: {e}")
+        return {"success": True, "query": query, "provider": provider, "results_count": len(results), "images": results}
 
-    def _compare(self, a: str, b: str) -> SkillResult:
-        if not a or not b: return SkillResult.fail(error="Both technologies required")
-        comparison = {"technologies": [a, b], "dimensions": [{"dimension": "Performance", "winner": a, "note": f"{a} generally faster"}, {"dimension": "Ease of Use", "winner": b, "note": f"{b} has simpler API"}, {"dimension": "Ecosystem", "winner": a, "note": f"{a} has larger community"}, {"dimension": "Security", "winner": "Tie", "note": "Both have strong security practices"}], "recommendation": f"Choose {a} for performance, {b} for simplicity"}
-        return SkillResult.ok(message=f"Comparison: {a} vs {b}", data=comparison)
+    def search_by_image(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        image_url = params.get("image_url", "")
+        results = []
+        try:
+            encoded = urllib.parse.quote(image_url)
+            google_url = f"https://www.google.com/searchbyimage?image_url={encoded}"
+            req = urllib.request.Request(google_url, headers={"User-Agent": self._user_agent})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+            matches = re.findall(r'<a href="(https?://[^"]+)"[^>]*>.*?<h3[^>]*>(.*?)</h3>', html, re.DOTALL)
+            for url, title in matches[:10]:
+                results.append({"url": url, "title": re.sub(r'<[^>]+>', '', title).strip(), "source": "google_reverse_image"})
+        except Exception as e:
+            logger.error(f"Reverse image search failed: {e}")
+        return {"success": True, "image_url": image_url, "results_count": len(results), "results": results}
 
-    def _literature(self, topic: str) -> SkillResult:
-        if not topic: return SkillResult.fail(error="Topic required")
-        review = {"topic": topic, "sections": [{"title": "Introduction", "content": f"Overview of {topic} and its significance in modern computing."}, {"title": "Current State", "content": f"Recent developments in {topic} have focused on scalability and security."}, {"title": "Key Challenges", "content": "Performance bottlenecks, compatibility issues, and security concerns remain primary challenges."}, {"title": "Future Directions", "content": "Integration with AI/ML, quantum-resistant algorithms, and edge computing adoption."}, {"title": "Conclusion", "content": f"{topic} continues to evolve rapidly with significant research investment."}], "sources": ["arXiv", "IEEE Xplore", "ACM Digital Library"]}
-        return SkillResult.ok(message=f"Literature review: {topic}", data=review)
+    def academic_search(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        query = params.get("query", "")
+        source = params.get("source", "arxiv")
+        max_results = params.get("max_results", 10)
+        if source == "arxiv":
+            return self._arxiv_search(query, max_results)
+        elif source == "crossref":
+            return self._crossref_search(query, max_results)
+        return {"error": f"Unknown academic source: {source}", "query": query}
 
-    def _poc(self, technique: str) -> SkillResult:
-        pocs = {
-            "sql_injection": "import requests\nurl = 'http://target.com/search'\npayload = \"' OR '1'='1\"\nr = requests.get(url, params={'q': payload})\nprint('Vulnerable' if 'error' not in r.text else 'Not vulnerable')",
-            "xss": "// PoC: Reflected XSS\n// Inject: <script>alert(document.cookie)</script>\n// In input fields and check if executed",
-            "path_traversal": "import requests\nurl = 'http://target.com/download'\nr = requests.get(url, params={'file': '../../../etc/passwd'})\nprint(r.text)",
-        }
-        code = pocs.get(technique.lower().replace(" ", "_"), f"# PoC for {technique}\n# Research the technique and implement accordingly")
-        return SkillResult.ok(message=f"PoC: {technique}", data={"technique": technique, "code": code, "warning": "For authorized testing only"})
+    def _arxiv_search(self, query: str, max_results: int) -> Dict[str, Any]:
+        try:
+            encoded = urllib.parse.quote(query)
+            url = f"http://export.arxiv.org/api/query?search_query=all:{encoded}&start=0&max_results={max_results}&sortBy=relevance&sortOrder=descending"
+            req = urllib.request.Request(url, headers={"User-Agent": self._user_agent})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                raw = resp.read().decode("utf-8")
+            import xml.etree.ElementTree as ET
+            ns = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
+            root = ET.fromstring(raw.encode("utf-8"))
+            papers = []
+            for entry in root.findall("atom:entry", ns):
+                title = entry.findtext("atom:title", default="", namespaces=ns).strip()
+                summary = entry.findtext("atom:summary", default="", namespaces=ns).strip()
+                authors = [a.findtext("atom:name", default="", namespaces=ns) for a in entry.findall("atom:author", ns)]
+                categories = [c.get("term", "") for c in entry.findall("atom:category", ns)]
+                pdf_link = ""
+                for link in entry.findall("atom:link", ns):
+                    if link.get("title") == "pdf":
+                        pdf_link = link.get("href", "")
+                published = entry.findtext("atom:published", default="", namespaces=ns)
+                updated = entry.findtext("atom:updated", default="", namespaces=ns)
+                papers.append({"title": title, "summary": summary[:800], "authors": authors, "categories": categories, "pdf_link": pdf_link, "published": published, "updated": updated, "source": "arxiv"})
+            return {"success": True, "query": query, "source": "arxiv", "papers_found": len(papers), "papers": papers}
+        except Exception as e:
+            return {"success": False, "error": str(e), "query": query, "papers": []}
 
-    def _trends(self, field: str) -> SkillResult:
-        trends = [{"technology": "AI/ML Integration", "adoption": 85, "maturity": "Growing"}, {"technology": "Zero Trust Architecture", "adoption": 65, "maturity": "Mainstream"}, {"technology": "Edge Computing", "adoption": 45, "maturity": "Emerging"}]
-        return SkillResult.ok(message=f"Trends: {field}", data={"field": field, "trends": trends, "top_growing": "AI/ML Integration"})
+    def _crossref_search(self, query: str, max_results: int) -> Dict[str, Any]:
+        try:
+            encoded = urllib.parse.quote(query)
+            url = f"https://api.crossref.org/works?query={encoded}&rows={max_results}&sort=relevance&order=desc"
+            req = urllib.request.Request(url, headers={"User-Agent": self._user_agent})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            papers = []
+            for item in data.get("message", {}).get("items", []):
+                papers.append({"title": item.get("title", [""])[0], "authors": [f"{a.get('given', '')} {a.get('family', '')}" for a in item.get("author", [])[:5]], "doi": item.get("DOI", ""), "published": str(item.get("published-print", {}).get("date-parts", [[""]])[0][0]), "publisher": item.get("publisher", ""), "type": item.get("type", ""), "source": "crossref"})
+            return {"success": True, "query": query, "source": "crossref", "papers_found": len(papers), "papers": papers}
+        except Exception as e:
+            return {"success": False, "error": str(e), "query": query, "papers": []}
+
+    def _deduplicate_results(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        seen = set()
+        unique = []
+        for r in results:
+            key = r.get("url", "") or r.get("title", "") or str(hash(str(r)))
+            if key not in seen:
+                seen.add(key)
+                unique.append(r)
+        return unique

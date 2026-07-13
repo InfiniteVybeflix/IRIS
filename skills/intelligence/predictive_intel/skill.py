@@ -1,88 +1,126 @@
-"""IRIS v7 Predictive Intel Skill — Predictive Analysis"""
+"""Predictive Intelligence Skill — Trend prediction, forecasting, anomaly detection."""
+
 import json
 import logging
-import os
 import statistics
-import threading
-import time
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-
-from skills.base import BaseSkill, SkillCapability
-from skills.contracts.skill_request import SkillRequest
-from skills.contracts.skill_result import SkillResult
-from skills.contracts.capability_tags import CapabilityTags
+from typing import Dict, Any, List
+from datetime import datetime, timedelta
+from skills import BaseSkill
 
 logger = logging.getLogger(__name__)
 
 
 class PredictiveIntelSkill(BaseSkill):
-    name = "predictive_intel"
-    display_name = "Predictive Intelligence"
-    description = "Predictive analysis — system failure prediction, security breach prediction, performance bottleneck forecasting, anomaly prediction, and risk scoring."
-    version = "7.0.0"
-    category = "intelligence"
-    icon = "🔮"
-    uses_storage = True
-    storage_dir = "data/skills/predictive_intel"
-    storage_file = "data/skills/predictive_intel/models.json"
+    """Trend analysis, forecasting, and anomaly detection."""
 
-    capabilities = [
-        SkillCapability(name="predict_failure", description="Predict system failure", input_schema={"metrics": "list"}, tags=[CapabilityTags.OBSERVABILITY]),
-        SkillCapability(name="predict_breach", description="Predict security breach", input_schema={"indicators": "list"}, tags=[CapabilityTags.TRUST_SAFETY]),
-        SkillCapability(name="predict_bottleneck", description="Predict performance bottleneck", input_schema={"performance_data": "list"}, tags=[CapabilityTags.OBSERVABILITY]),
-        SkillCapability(name="anomaly_forecast", description="Forecast anomalies", input_schema={"time_series": "list"}, tags=[CapabilityTags.OBSERVABILITY]),
-        SkillCapability(name="risk_score", description="Calculate risk score", input_schema={"factors": "dict"}, tags=[CapabilityTags.DECISION_SUPPORT]),
-    ]
+    def __init__(self):
+        super().__init__(
+            name="predictive_intel",
+            category="intelligence",
+            capabilities=["predictive_analytics"]
+        )
 
-    def execute(self, request):
-        intent = request.intent.lower()
-        p = request.params
-        try:
-            if "failure" in intent: return self._failure(p.get("metrics", []))
-            elif "breach" in intent: return self._breach(p.get("indicators", []))
-            elif "bottleneck" in intent: return self._bottleneck(p.get("performance_data", []))
-            elif "anomal" in intent: return self._anomaly(p.get("time_series", []))
-            elif "risk" in intent: return self._risk(p.get("factors", {}))
-            return SkillResult.fail(error=f"Unknown: {intent}")
-        except Exception as e:
-            return SkillResult.fail(error=str(e))
+    def execute(self, capability: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        method = params.get("method", "forecast")
+        if method == "forecast":
+            return self.forecast(params)
+        elif method == "trend_analysis":
+            return self.trend_analysis(params)
+        elif method == "anomaly_detect":
+            return self.anomaly_detect(params)
+        return {"error": f"Unknown method: {method}"}
 
-    def can_handle(self, request):
-        return 0.9 if any(k in request.intent.lower() for k in ["predict", "forecast", "risk_score", "anomaly"]) else super().can_handle(request)
+    def forecast(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        data = params.get("data", [])
+        periods = params.get("periods", 5)
+        method = params.get("forecast_method", "linear")
+        if not data or len(data) < 2:
+            return {"success": False, "error": "Need at least 2 data points", "forecast": []}
+        if method == "linear":
+            return self._linear_forecast(data, periods)
+        elif method == "moving_average":
+            return self._moving_average_forecast(data, periods, params)
+        elif method == "exponential":
+            return self._exponential_forecast(data, periods, params)
+        return {"success": False, "error": f"Unknown forecast method: {method}"}
 
-    def _failure(self, metrics: list) -> SkillResult:
-        if len(metrics) < 3: return SkillResult.ok(message="Need more data", data={})
-        trend = metrics[-1] - metrics[0]
-        predicted = metrics[-1] + trend * 0.5
-        risk = "HIGH" if predicted > 90 else "MEDIUM" if predicted > 75 else "LOW"
-        return SkillResult.ok(message=f"Failure prediction: {risk}", data={"predicted_value": round(predicted, 2), "risk": risk, "confidence": min(0.95, 0.5 + len(metrics) * 0.05), "recommendation": "Scale resources immediately" if risk == "HIGH" else "Monitor closely"})
+    def _linear_forecast(self, data: List[float], periods: int) -> Dict[str, Any]:
+        n = len(data)
+        x_mean = sum(range(n)) / n
+        y_mean = sum(data) / n
+        denom = sum((i - x_mean) ** 2 for i in range(n))
+        slope = sum((i - x_mean) * (data[i] - y_mean) for i in range(n)) / denom if denom else 0
+        intercept = y_mean - slope * x_mean
+        forecast = [round(slope * (n + i) + intercept, 4) for i in range(1, periods + 1)]
+        r_squared = self._r_squared(data, [slope * i + intercept for i in range(n)]) if denom else 0
+        return {"success": True, "forecast": forecast, "slope": round(slope, 6), "intercept": round(intercept, 4), "r_squared": round(r_squared, 4), "method": "linear_regression"}
 
-    def _breach(self, indicators: list) -> SkillResult:
-        score = 0
-        weights = {"failed_login": 5, "privilege_escalation": 20, "data_access": 15, "malware_detected": 25, "lateral_movement": 20, "exfiltration": 25}
-        for ind in indicators:
-            score += weights.get(ind.lower(), 10)
-        risk = "CRITICAL" if score > 60 else "HIGH" if score > 40 else "MEDIUM" if score > 20 else "LOW"
-        return SkillResult.ok(message=f"Breach prediction: {risk} ({score}/100)", data={"score": score, "risk": risk, "top_indicators": indicators[:3], "recommendation": "Activate incident response" if risk in ("CRITICAL", "HIGH") else "Increase monitoring"})
+    def _moving_average_forecast(self, data: List[float], periods: int, params: Dict[str, Any]) -> Dict[str, Any]:
+        window = min(params.get("window", 3), len(data))
+        ma = statistics.mean(data[-window:])
+        forecast = [round(ma, 4)] * periods
+        return {"success": True, "forecast": forecast, "window": window, "method": "moving_average"}
 
-    def _bottleneck(self, data: list) -> SkillResult:
-        if not data: return SkillResult.fail(error="Data required")
-        avg = statistics.mean(data)
-        std = statistics.stdev(data) if len(data) > 1 else 0
-        threshold = avg + 2 * std
-        peaks = [v for v in data if v > threshold]
-        return SkillResult.ok(message=f"Bottleneck: {len(peaks)} peaks detected", data={"average": round(avg, 2), "threshold": round(threshold, 2), "peak_count": len(peaks), "predicted_location": "Database layer" if avg > 80 else "API layer"})
+    def _exponential_forecast(self, data: List[float], periods: int, params: Dict[str, Any]) -> Dict[str, Any]:
+        alpha = params.get("alpha", 0.3)
+        s = [data[0]]
+        for i in range(1, len(data)):
+            s.append(alpha * data[i] + (1 - alpha) * s[-1])
+        forecast = [round(s[-1], 4)]
+        for _ in range(1, periods):
+            forecast.append(round(alpha * forecast[-1] + (1 - alpha) * forecast[-1], 4))
+        return {"success": True, "forecast": forecast, "alpha": alpha, "method": "exponential_smoothing"}
 
-    def _anomaly(self, series: list) -> SkillResult:
-        if len(series) < 5: return SkillResult.ok(message="Need more data points", data={})
-        mean = statistics.mean(series)
-        std = statistics.stdev(series)
-        anomalies = [{"index": i, "value": v, "deviation": round(abs(v - mean) / std, 2)} for i, v in enumerate(series) if abs(v - mean) > 2 * std]
-        return SkillResult.ok(message=f"Anomaly forecast: {len(anomalies)} anomalies", data={"anomalies": anomalies, "mean": round(mean, 2), "std": round(std, 2), "forecast": "Increasing anomaly rate" if len(anomalies) > len(series) * 0.1 else "Stable"})
+    def _r_squared(self, actual: List[float], predicted: List[float]) -> float:
+        ss_res = sum((a - p) ** 2 for a, p in zip(actual, predicted))
+        y_mean = sum(actual) / len(actual)
+        ss_tot = sum((a - y_mean) ** 2 for a in actual)
+        return 1 - (ss_res / ss_tot) if ss_tot else 0
 
-    def _risk(self, factors: dict) -> SkillResult:
-        if not factors: return SkillResult.fail(error="Factors required")
-        total_score = sum(v * w for v, w in [(factors.get("critical_assets", 5), 3), (factors.get("threat_exposure", 5), 2), (factors.get("vuln_count", 0), 5), (factors.get("patch_lag_days", 0), 0.5), (factors.get("incident_history", 0), 10)])
-        risk_level = "CRITICAL" if total_score > 80 else "HIGH" if total_score > 50 else "MEDIUM" if total_score > 25 else "LOW"
-        return SkillResult.ok(message=f"Risk score: {total_score}/100 ({risk_level})", data={"score": total_score, "level": risk_level, "factors": factors, "priority_actions": ["Patch critical vulns", "Enable MFA", "Review access controls"] if risk_level in ("CRITICAL", "HIGH") else ["Continue monitoring"]})
+    def trend_analysis(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        data = params.get("data", [])
+        if len(data) < 4:
+            return {"success": False, "error": "Need at least 4 data points", "trend": "insufficient_data"}
+        q1 = data[:len(data)//4] if len(data) >= 4 else data[:1]
+        q2 = data[len(data)//4:len(data)//2]
+        q3 = data[len(data)//2:3*len(data)//4]
+        q4 = data[3*len(data)//4:]
+        means = [statistics.mean(q) if q else 0 for q in [q1, q2, q3, q4]]
+        slope = means[-1] - means[0]
+        if slope > abs(statistics.mean(data)) * 0.1:
+            trend = "strongly_increasing"
+        elif slope > 0:
+            trend = "increasing"
+        elif slope < -abs(statistics.mean(data)) * 0.1:
+            trend = "strongly_decreasing"
+        elif slope < 0:
+            trend = "decreasing"
+        else:
+            trend = "stable"
+        return {"success": True, "trend": trend, "quarterly_means": [round(m, 4) for m in means], "overall_slope": round(slope, 4), "data_points": len(data)}
+
+    def anomaly_detect(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        data = params.get("data", [])
+        if len(data) < 3:
+            return {"success": False, "error": "Need at least 3 data points", "anomalies": []}
+        mean = statistics.mean(data)
+        stdev = statistics.stdev(data) if len(data) > 1 else 0
+        threshold = params.get("threshold", 2)
+        method = params.get("detection_method", "zscore")
+        anomalies = []
+        if method == "zscore" and stdev:
+            for i, v in enumerate(data):
+                z = abs(v - mean) / stdev
+                if z > threshold:
+                    anomalies.append({"index": i, "value": v, "z_score": round(z, 4), "mean": round(mean, 4)})
+        elif method == "iqr":
+            sorted_data = sorted(data)
+            q1 = sorted_data[len(sorted_data)//4]
+            q3 = sorted_data[3*len(sorted_data)//4]
+            iqr = q3 - q1
+            lower = q1 - threshold * iqr
+            upper = q3 + threshold * iqr
+            for i, v in enumerate(data):
+                if v < lower or v > upper:
+                    anomalies.append({"index": i, "value": v, "bounds": [round(lower, 4), round(upper, 4)]})
+        return {"success": True, "anomalies": anomalies, "anomaly_count": len(anomalies), "mean": round(mean, 4), "stdev": round(stdev, 4), "threshold": threshold}

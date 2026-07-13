@@ -1,3 +1,3 @@
-"""Cloud Security — AWS/Azure/GCP posture management, compliance mapping."""
+"""Cloud Security — Cloud config audit, IAM review, compliance check."""
 from skills.security.cloud_security.skill import CloudSecuritySkill
 __all__ = ["CloudSecuritySkill"]
