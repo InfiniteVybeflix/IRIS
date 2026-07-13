@@ -2,7 +2,7 @@
 Aevibron Agent Corps — IRIS Supreme Commander
 Task router, delegator, aggregator, and mission orchestrator.
 
-Author: IRIS v7.0
+Author: IRIS v1.0
 """
 
 import json

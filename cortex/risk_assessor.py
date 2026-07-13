@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — RiskAssessor
+IRIS v1.0 — RiskAssessor
 Pre-execution risk analysis engine.
 
 Evaluates risk of every action before execution across multiple

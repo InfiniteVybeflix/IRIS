@@ -1,4 +1,4 @@
-"""IRIS v9 Auth Routes"""
+"""IRIS v1 Auth Routes"""
 from flask import Blueprint, request, jsonify, session
 from modules.security import security_manager
 

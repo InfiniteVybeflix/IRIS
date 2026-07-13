@@ -1,4 +1,4 @@
-"""IRIS v9 Phone Bridge Routes"""
+"""IRIS v1 Phone Bridge Routes"""
 from flask import Blueprint, request, jsonify
 from modules.phone_bridge import phone_bridge
 

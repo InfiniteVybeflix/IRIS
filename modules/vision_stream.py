@@ -1,4 +1,4 @@
-"""IRIS v8 Vision Stream — Screen & Camera Capture for Real-time Analysis"""
+"""IRIS v1 Vision Stream — Screen & Camera Capture for Real-time Analysis"""
 import os
 import cv2
 import numpy as np

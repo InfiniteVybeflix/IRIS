@@ -5,7 +5,7 @@ Domain: software_engineering
 Role: System design, architecture, tech stack decisions, database schema design,
       API design, infrastructure generation, security architecture review.
 
-Author: IRIS v7.0
+Author: IRIS v1.0
 """
 
 import json

@@ -1,4 +1,4 @@
-"""IRIS v9 NL2Code — Natural Language to Working Code
+"""IRIS v1 NL2Code — Natural Language to Working Code
 Converts plain English requirements into production-ready code.
 """
 import re

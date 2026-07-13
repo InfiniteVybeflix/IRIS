@@ -1,4 +1,4 @@
-"""IRIS v9 Hybrid Chess Engine — AI Training & Intelligence Testing"""
+"""IRIS v1 Hybrid Chess Engine — AI Training & Intelligence Testing"""
 import os
 import json
 import chess

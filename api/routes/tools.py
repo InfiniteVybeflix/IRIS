@@ -1,4 +1,4 @@
-"""IRIS v9 Tools Routes"""
+"""IRIS v1 Tools Routes"""
 from flask import Blueprint, request, jsonify
 from api.utils.rate_limiter import rate_limit
 from core.tool_registry import tool_registry

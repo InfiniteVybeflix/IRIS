@@ -1,4 +1,4 @@
-"""IRIS v9 Consciousness Routes"""
+"""IRIS v1 Consciousness Routes"""
 from flask import Blueprint, request, jsonify
 from modules.consciousness import consciousness
 

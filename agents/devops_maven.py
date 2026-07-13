@@ -5,7 +5,7 @@ Codename: PIPE
 Domain: software_engineering
 Role: Docker containerization, Kubernetes manifests, CI/CD pipelines, Infrastructure as Code, monitoring, log aggregation.
 
-Author: IRIS v7.0
+Author: IRIS v1.0
 """
 
 import json

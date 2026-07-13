@@ -2,7 +2,7 @@
 Aevibron Agent Corps — Task Queue
 Priority task queue with persistence, dependency tracking, and status monitoring.
 
-Author: IRIS v7.0
+Author: IRIS v1.0
 """
 
 import heapq

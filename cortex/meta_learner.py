@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — MetaLearner
+IRIS v1.0 — MetaLearner
 Self-improvement and bias detection engine.
 
 Records outcomes of plans, identifies systematic reasoning biases,

@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Strategist
+IRIS v1.0 — Strategist
 Approach selection and adaptation engine.
 
 Selects optimal approaches for tasks, evaluates trade-offs between

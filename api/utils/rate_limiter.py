@@ -1,4 +1,4 @@
-"""IRIS v9 Rate Limiter — Simple in-memory throttling"""
+"""IRIS v1 Rate Limiter — Simple in-memory throttling"""
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import request, jsonify

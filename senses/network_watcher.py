@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Network Watcher
+IRIS v1.0 — Network Watcher
 
 Live network traffic monitoring, packet capture, port scan detection,
 bandwidth monitoring, and DNS tunneling detection.

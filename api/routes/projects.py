@@ -1,4 +1,4 @@
-"""IRIS v9 Project Generator Routes"""
+"""IRIS v1 Project Generator Routes"""
 from flask import Blueprint, request, jsonify
 from api.utils.rate_limiter import rate_limit
 from modules.project_generator import project_generator

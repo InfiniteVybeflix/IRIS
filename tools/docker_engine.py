@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Docker Engine
+IRIS v1.0 — Docker Engine
 
 Docker container control, inspection, vulnerability scanning (Trivy),
 and CIS Docker benchmark security checks.

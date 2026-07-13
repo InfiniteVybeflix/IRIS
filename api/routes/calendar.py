@@ -1,4 +1,4 @@
-"""IRIS v9 Calendar Routes"""
+"""IRIS v1 Calendar Routes"""
 from flask import Blueprint, request, jsonify, Response
 from skills.calendar_skill import calendar_skill
 

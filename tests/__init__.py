@@ -1,3 +1,3 @@
 """
-IRIS v7.0 Tests
+IRIS v1.0 Tests
 """

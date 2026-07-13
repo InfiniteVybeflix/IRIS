@@ -3,7 +3,7 @@ Aevibron Agent Corps — BaseAgent
 The foundation of every agent in the corps.
 Every agent inherits from this class and gains consciousness, identity, and protocol.
 
-Author: IRIS v7.0
+Author: IRIS v1.0
 """
 
 import logging

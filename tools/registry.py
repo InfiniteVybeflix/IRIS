@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Tool Registry
+IRIS v1.0 — Tool Registry
 
 Auto-discovers, registers, health-checks, and executes all tools.
 Central dispatcher for the IRIS operational layer.

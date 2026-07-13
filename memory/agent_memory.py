@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — AgentMemory
+IRIS v1.0 — AgentMemory
 Per-agent episodic memory of missions.
 
 Tracks every mission an agent executes, their outcomes, performance

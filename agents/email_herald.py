@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 email_herald.py — HERALD
-Email Operations Agent for IRIS v7.0
+Email Operations Agent for IRIS v1.0
 Rich HTML templates (Jinja2), multiple SMTP providers (SendGrid/AWS SES/Mailgun),
 scheduling (cron-like), alert thresholds, queue management, delivery tracking, bounce handling.
 """

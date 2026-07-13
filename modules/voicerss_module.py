@@ -1,4 +1,4 @@
-"""IRIS v8 VoiceRSS Module — Alternative TTS with more voice options"""
+"""IRIS v1 VoiceRSS Module — Alternative TTS with more voice options"""
 import os
 import requests
 from typing import Dict, Optional

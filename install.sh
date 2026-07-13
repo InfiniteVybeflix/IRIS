@@ -2,7 +2,7 @@
 set -e
 
 echo "========================================"
-echo "  IRIS v9 Installer"
+echo "  IRIS v1 Installer"
 echo "========================================"
 
 OS="unknown"
@@ -62,7 +62,7 @@ fi
 
 echo ""
 echo "========================================"
-echo "  IRIS v9 installed successfully!"
+echo "  IRIS v1 installed successfully!"
 echo "========================================"
 echo "Next steps:"
 echo "  1. Edit .env with your credentials"

@@ -1,4 +1,4 @@
-"""IRIS v8 Email Module — Secure email sending with Gmail/Resend"""
+"""IRIS v1 Email Module — Secure email sending with Gmail/Resend"""
 import os
 import smtplib
 import requests
@@ -90,7 +90,7 @@ class EmailModule:
         html_body = f"""
         <h2>{title}</h2>
         <p><strong>Time:</strong> {datetime.now().isoformat()}</p>
-        <p><strong>Status:</strong> IRIS v8 Active</p>
+        <p><strong>Status:</strong> IRIS v1 Active</p>
         <hr>
         <pre style="background:#f5f5f5;padding:15px;border-radius:8px;">{log_content}</pre>
         """

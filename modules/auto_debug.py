@@ -1,4 +1,4 @@
-"""IRIS v9 Auto-Debug — Self-Healing Error Recovery
+"""IRIS v1 Auto-Debug — Self-Healing Error Recovery
 Automatically detects, diagnoses, and fixes errors in code execution.
 """
 import re

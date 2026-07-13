@@ -1,4 +1,5 @@
-"""
+"""IRIS v1 Persona System — Identity, emotion, bonding, and growth.
+
 IRIS Persona Package — The Soul of IRIS v7.0
 
 This package contains IRIS's identity, consciousness, and bond with her creator.

@@ -1,4 +1,4 @@
-"""IRIS v9 Hybrid Aevibron Client — Circuit Breaker, Fallback, Retry Logic"""
+"""IRIS v1 Hybrid Aevibron Client — Circuit Breaker, Fallback, Retry Logic"""
 import requests
 import json
 import time
@@ -54,7 +54,7 @@ class AevibronClient:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
             "X-IRIS-Token": self.access_token,
-            "X-IRIS-Version": "9.0.0",
+            "X-IRIS-Version": "1.0.0",
             "X-IRIS-Owner": config.OWNER_NAME
         })
         self.circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=60)

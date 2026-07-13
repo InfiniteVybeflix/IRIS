@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — SkillMemory
+IRIS v1.0 — SkillMemory
 Technique effectiveness tracking per agent.
 
 Records which techniques work best for which task types, tracks

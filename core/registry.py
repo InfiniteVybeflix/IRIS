@@ -2,7 +2,7 @@
 Aevibron Agent Corps — Agent Registry
 Agent discovery, registration, health monitoring, and lifecycle management.
 
-Author: IRIS v7.0
+Author: IRIS v1.0
 """
 
 import importlib

@@ -1,4 +1,4 @@
-"""IRIS v8 Phone Bridge — Android Control via ADB"""
+"""IRIS v1 Phone Bridge — Android Control via ADB"""
 import os
 import subprocess
 import json

@@ -1,4 +1,4 @@
-"""IRIS v9 Gateway Routes"""
+"""IRIS v1 Gateway Routes"""
 from flask import Blueprint, jsonify
 from core.aevibron_client import aevibron
 

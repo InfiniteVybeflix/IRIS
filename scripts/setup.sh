@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# IRIS v7.0 Setup Script
+# IRIS v1.0 Setup Script
 # One-command bootstrap for the Aevibron Agent Corps
 
 set -e
 
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║     AEVIBRON AGENT CORPS — IRIS v7.0 SETUP                  ║"
+echo "║     AEVIBRON AGENT CORPS — IRIS v1.0 SETUP                  ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -52,7 +52,7 @@ echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║     SETUP COMPLETE                                          ║"
 echo "║                                                              ║"
-echo "║  Run: python3 main.py                                        ║"
-echo "║  API: python3 core/api_server.py                             ║"
+echo "║  Run: python3 app.py                                        ║"
+echo "║  API: python3 app.py                             ║"
 echo "║  Test: python3 -m pytest tests/ -v                          ║"
 echo "╚══════════════════════════════════════════════════════════════╝"

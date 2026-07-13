@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Log Ingestor
+IRIS v1.0 — Log Ingestor
 
 Stream and parse logs from services. Detects brute force attacks,
 privilege escalation attempts, and unusual error patterns.

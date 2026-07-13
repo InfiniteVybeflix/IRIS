@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — KnowledgeGraph
+IRIS v1.0 — KnowledgeGraph
 Connected facts graph (subject-predicate-object).
 
 Stores and queries a semantic graph of facts with confidence scores.

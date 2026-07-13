@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 blockchain_ledger.py — CHAIN
-Blockchain Security Agent for IRIS v7.0
+Blockchain Security Agent for IRIS v1.0
 Smart contract audit (Solidity/Vyper), transaction analysis,
 wallet security checks, gas optimization, ERC standard compliance,
 DeFi protocol risk scoring, on-chain forensics.

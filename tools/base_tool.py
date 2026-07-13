@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Base Tool & IRISConnectable Interface
+IRIS v1.0 — Base Tool & IRISConnectable Interface
 
 Defines the contract every tool must fulfill. All tools inherit from BaseTool.
 Uniform health checks, execution patterns, result formatting, reporting.

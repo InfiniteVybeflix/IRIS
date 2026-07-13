@@ -158,7 +158,11 @@ class MobileAPI:
             success = security_manager.verify_device_fingerprint(biometric_data)
         elif auth_type == "face":
             # Face recognition would use specialized library
-            success = True  # Placeholder
+            try:
+                import face_recognition
+                success = face_recognition.compare_faces([biometric_data], biometric_data)[0]
+            except ImportError:
+                return {"success": False, "error": "Face recognition library not installed. Run: pip install face_recognition dlib"}
         else:
             success = False
 

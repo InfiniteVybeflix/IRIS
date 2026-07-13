@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Alert Router
+IRIS v1.0 — Alert Router
 
 Central alert management: routing, deduplication, escalation,
 formatting per agent, and multi-channel notification delivery.

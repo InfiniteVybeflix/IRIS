@@ -1,4 +1,4 @@
-"""IRIS v9 Hybrid Database — Postgres (Vercel) + SQLite (Local) Dual Engine"""
+"""IRIS v1 Hybrid Database — Postgres (Vercel) + SQLite (Local) Dual Engine"""
 import os
 import json
 import sqlite3

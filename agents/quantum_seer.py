@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 quantum_seer.py — QBIT
-Quantum Security Agent for IRIS v7.0
+Quantum Security Agent for IRIS v1.0
 Quantum-safe cryptography assessment, PQC algorithm recommendations,
 QKD planning, cryptographic inventory, RSA/ECC key size analysis,
 hybrid scheme design, post-quantum migration roadmap.

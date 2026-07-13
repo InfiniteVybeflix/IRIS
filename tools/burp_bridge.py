@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Burp Suite Bridge
+IRIS v1.0 — Burp Suite Bridge
 
 Burp Suite Enterprise/Professional REST API integration.
 Scan initiation, status monitoring, issue extraction, report generation.

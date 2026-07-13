@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 data_alchemist.py — CRUCIBLE
-Data Intelligence Agent for IRIS v7.0
+Data Intelligence Agent for IRIS v1.0
 Handles scraping, entity extraction, data cleaning, API integration,
 content change detection, price tracking, and search aggregation.
 """

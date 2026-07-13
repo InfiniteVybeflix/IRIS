@@ -7,7 +7,7 @@ Role: Subdomain enumeration, technology fingerprinting, DNS enumeration, WHOIS a
       OSINT, Google dorking, directory brute-forcing, port scanning (nmap integration),
       service detection.
 
-Author: IRIS v7.0
+Author: IRIS v1.0
 """
 
 import json

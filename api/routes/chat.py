@@ -1,4 +1,4 @@
-"""IRIS v9 Chat Routes — Streaming, Proactive Context, Tool Calling"""
+"""IRIS v1 Chat Routes — Streaming, Proactive Context, Tool Calling"""
 import json
 import uuid
 from flask import Blueprint, request, jsonify, Response, stream_with_context

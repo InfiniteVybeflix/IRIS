@@ -1,4 +1,4 @@
-"""IRIS v9 Hybrid Sandbox Executor - Safe Code Execution"""
+"""IRIS v1 Hybrid Sandbox Executor - Safe Code Execution"""
 import os
 import sys
 import subprocess

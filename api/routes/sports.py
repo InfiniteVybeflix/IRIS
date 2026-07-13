@@ -1,4 +1,4 @@
-"""IRIS v9 Sports Routes"""
+"""IRIS v1 Sports Routes"""
 from flask import Blueprint, request, jsonify
 from modules.sports_module import sports_module
 

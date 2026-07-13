@@ -1,4 +1,4 @@
-"""IRIS v8 Sports Module — Live scores, odds, stats via API-Sports"""
+"""IRIS v1 Sports Module — Live scores, odds, stats via API-Sports"""
 import os
 import requests
 from datetime import datetime

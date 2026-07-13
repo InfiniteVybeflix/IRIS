@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — BaseCortex
+IRIS v1.0 — BaseCortex
 Abstract base class for all reasoning modules.
 
 Provides the foundation for IRIS's cognitive reasoning with:

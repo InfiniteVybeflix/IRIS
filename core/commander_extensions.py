@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-core/commander_extensions.py — IRIS v7.0 Commander Extensions
+core/commander_extensions.py — IRIS v1.0 Commander Extensions
 Extended mission decomposition with agent-specific routing,
 cross-agent dependency chains, and intelligent task scheduling.
 """

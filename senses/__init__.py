@@ -1,27 +1,16 @@
-"""
-IRIS v7.0 — Senses Package
+"""IRIS v1 Senses — Perceptual monitoring and threat detection layer."""
+from senses.base_sense import BaseSense
+from senses.registry import SenseRegistry
+from senses.system_monitor import SystemMonitor
+from senses.file_watcher import FileWatcher
+from senses.network_watcher import NetworkWatcher
+from senses.log_ingestor import LogIngestor
+from senses.threat_feeds import ThreatFeeds
+from senses.uptime_monitor import UptimeMonitor
+from senses.alert_router import AlertRouter
 
-The perceptual layer. Every sense in this package monitors real systems,
-streams real data, and detects real anomalies. No simulations. No stubs.
-
-Senses are organized by domain:
-    - system:     system_monitor
-    - filesystem: file_watcher
-    - network:    network_watcher
-    - logs:       log_ingestor
-    - threat:     threat_feeds
-    - uptime:     uptime_monitor
-    - alert:      alert_router
-
-Usage:
-    from iris_v7.senses import SenseRegistry
-    registry = SenseRegistry()
-    registry.discover()
-    registry.start_all()
-    status = registry.get_status()
-"""
-
-from .registry import SenseRegistry
-from .base_sense import BaseSense, IRISConnectable
-
-__all__ = ["SenseRegistry", "BaseSense", "IRISConnectable"]
+__all__ = [
+    "BaseSense", "SenseRegistry", "SystemMonitor", "FileWatcher",
+    "NetworkWatcher", "LogIngestor", "ThreatFeeds",
+    "UptimeMonitor", "AlertRouter",
+]

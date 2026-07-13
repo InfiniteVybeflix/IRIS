@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Base Sense & IRISConnectable Interface
+IRIS v1.0 — Base Sense & IRISConnectable Interface
 
 Defines the contract every sense must fulfill. All senses inherit from BaseSense.
 Uniform monitoring patterns, alert thresholds, anomaly detection, reporting.

@@ -1,4 +1,4 @@
-"""IRIS v9 Hybrid Security — Authentication, Sessions & Device Management"""
+"""IRIS v1 Hybrid Security — Authentication, Sessions & Device Management"""
 import os
 import hashlib
 import secrets

@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — LearningEngine
+IRIS v1.0 — LearningEngine
 Pattern extraction and improvement engine.
 
 Analyzes mission history to identify success/failure patterns,

@@ -1,4 +1,4 @@
-"""IRIS v9 Mobile API Routes"""
+"""IRIS v1 Mobile API Routes"""
 from flask import Blueprint, request, jsonify
 from modules.mobile_api import mobile_api
 

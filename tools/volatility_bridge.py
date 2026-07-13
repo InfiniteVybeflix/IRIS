@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Volatility Bridge
+IRIS v1.0 — Volatility Bridge
 
 Memory forensics using Volatility 3. Process analysis, malware detection,
 network artifact extraction, process memory dumping.

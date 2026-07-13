@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tests/test_integration.py — IRIS v7.0 Integration Tests
+tests/test_integration.py — IRIS v1.0 Integration Tests
 Validates all 29 agents are registered, wired, and functional.
 """
 

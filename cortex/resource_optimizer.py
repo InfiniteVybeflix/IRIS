@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — ResourceOptimizer
+IRIS v1.0 — ResourceOptimizer
 Efficient resource allocation and scheduling engine.
 
 Estimates costs, optimizes plans for budget constraints, schedules

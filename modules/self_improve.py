@@ -1,4 +1,4 @@
-"""IRIS v9 Hybrid Self-Improvement Engine - Edits Her Own Code"""
+"""IRIS v1 Hybrid Self-Improvement Engine - Edits Her Own Code"""
 import os
 import json
 import shutil

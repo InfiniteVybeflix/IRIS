@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-core/bootstrap.py — IRIS v7.0 Bootstrap
+core/bootstrap.py — IRIS v1.0 Bootstrap
 Registers all 29 agents into the AgentRegistry, wires MessageBus,
 SharedMemory, and TaskQueue. Provides a single entry point to bring
 the entire Aevibron Agent Corps online.
@@ -142,7 +142,7 @@ def bootstrap_all(
         print(report)
     """
     logger.info("=" * 60)
-    logger.info("  AEVIBRON AGENT CORPS — IRIS v7.0 BOOTSTRAP")
+    logger.info("  AEVIBRON AGENT CORPS — IRIS v1.0 BOOTSTRAP")
     logger.info("=" * 60)
 
     registry, message_bus, shared_memory, task_queue = create_infrastructure(data_dir)
@@ -202,4 +202,4 @@ if __name__ == "__main__":
     print(commander.message_bus.get_stats())
     print("\n--- Task Queue Stats ---")
     print(commander.task_queue.get_stats())
-    print("\nIRIS v7.0 is online. Ready for missions.")
+    print("\nIRIS v1.0 is online. Ready for missions.")

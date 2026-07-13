@@ -1,4 +1,4 @@
-"""IRIS v9 Vision Routes"""
+"""IRIS v1 Vision Routes"""
 from flask import Blueprint, request, jsonify
 from modules.vision_stream import vision_stream
 

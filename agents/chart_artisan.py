@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 chart_artisan.py — CANVAS
-Data Visualization Agent for IRIS v7.0
+Data Visualization Agent for IRIS v1.0
 Multi-chart dashboards (Plotly/ECharts/Matplotlib), real-time streaming data,
 interactive charts, export (PNG/SVG/PDF/HTML), theming/dark mode, responsive layouts.
 """

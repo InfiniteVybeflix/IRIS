@@ -1,4 +1,4 @@
-"""IRIS v9 Memory Routes"""
+"""IRIS v1 Memory Routes"""
 from flask import Blueprint, request, jsonify
 from core.memory_engine import memory_engine
 

@@ -4,7 +4,7 @@ Offensive operations agent. Real MITRE ATT&CK TTP execution (safe environments),
 attack chain orchestration, lateral movement simulation, persistence testing,
 exfiltration pathways, social engineering, physical security assessment.
 
-Author: IRIS v7.0 (Merged & Enhanced)
+Author: IRIS v1.0 (Merged & Enhanced)
 """
 
 import json

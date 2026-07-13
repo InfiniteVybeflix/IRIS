@@ -1,4 +1,4 @@
-"""IRIS v9 Voice Routes"""
+"""IRIS v1 Voice Routes"""
 import asyncio
 from flask import Blueprint, request, jsonify
 from api.utils.rate_limiter import rate_limit

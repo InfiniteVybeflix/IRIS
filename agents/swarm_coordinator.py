@@ -1,4 +1,4 @@
-"""IRIS v9 Hybrid Swarm Coordinator - Multiple Agents Working Together"""
+"""IRIS v1 Hybrid Swarm Coordinator - Multiple Agents Working Together"""
 import os
 import json
 import uuid

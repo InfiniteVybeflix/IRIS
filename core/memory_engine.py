@@ -1,4 +1,4 @@
-"""IRIS v8 Memory Engine — Experience Replay + Skill Library + Vector Search"""
+"""IRIS v1 Memory Engine — Experience Replay + Skill Library + Vector Search"""
 import os
 import json
 import re

@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Tools Connector
+IRIS v1.0 — Tools Connector
 
 Single import point for wiring tools into your main project.
 Drop this file + the tools/ folder into your project and import from here.

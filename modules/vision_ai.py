@@ -1,4 +1,4 @@
-"""IRIS v9 Vision AI — Multi-Modal Image/Video Understanding
+"""IRIS v1 Vision AI — Multi-Modal Image/Video Understanding
 Analyzes images, screenshots, and video frames with detailed descriptions.
 """
 import base64

@@ -1,4 +1,4 @@
-# IRIS v9 — Infinite Reactive Intelligence System
+# IRIS v1 — Infinite Reactive Intelligence System
 # Complete Python Dependencies
 
 # Core Framework

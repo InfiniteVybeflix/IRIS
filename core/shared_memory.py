@@ -2,7 +2,7 @@
 Aevibron Agent Corps — Shared Memory
 Common workspace for agents to share findings, data, and intermediate results.
 
-Author: IRIS v7.0
+Author: IRIS v1.0
 """
 
 import json

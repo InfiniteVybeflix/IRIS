@@ -1,4 +1,4 @@
-"""IRIS v9 Math Routes"""
+"""IRIS v1 Math Routes"""
 from flask import Blueprint, request, jsonify
 from skills.math_skill import math_skill
 

@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Sense Registry
+IRIS v1.0 — Sense Registry
 
 Auto-discovers, registers, starts, stops, and monitors all senses.
 Central nervous system for the IRIS perceptual layer.

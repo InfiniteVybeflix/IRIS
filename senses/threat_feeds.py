@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Threat Feeds
+IRIS v1.0 — Threat Feeds
 
 Live threat intelligence ingestion: CVE feeds, abuse.ch lists,
 AlienVault OTX, IP reputation checks, hash reputation, and IOC matching.
@@ -55,7 +55,7 @@ class ThreatFeeds(BaseSense):
     def __init__(self, iris_core: Optional[Any] = None) -> None:
         super().__init__(iris_core)
         self._session = requests.Session()
-        self._session.headers.update({"User-Agent": "IRIS-v7.0/Threat-Intel", "Accept": "application/json"})
+        self._session.headers.update({"User-Agent": "IRIS-v1.0/Threat-Intel", "Accept": "application/json"})
         self._session.verify = True
         self._otx_api_key = os.environ.get("IRIS_OTX_API_KEY", "")
         self._vt_api_key = os.environ.get("IRIS_VT_API_KEY", "")

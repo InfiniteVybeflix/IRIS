@@ -2,7 +2,7 @@
 Aevibron Agent Corps — Communication Protocol
 Inter-agent messaging bus with async + sync support, persistence, and history.
 
-Author: IRIS v7.0
+Author: IRIS v1.0
 """
 
 import json

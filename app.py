@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-IRIS v9 — Infinite Reactive Intelligence System
+IRIS v1 — Infinite Reactive Intelligence System
 Perfect Entry Point — Fully Wired, Zero Orphans, Production Ready
 
 Architecture:
@@ -172,7 +172,7 @@ class IRISCore:
         self._initialized = True
 
         logger.info("=" * 60)
-        logger.info("IRIS v9 — Initializing Infinite Reactive Intelligence")
+        logger.info("IRIS v1 — Initializing Infinite Reactive Intelligence")
         logger.info("OMNIS Skills Agent — Loading all capabilities...")
         logger.info("=" * 60)
 
@@ -260,7 +260,7 @@ class IRISCore:
         self._wire_modules()
         self.omnis.start()
 
-        logger.info("IRIS v9 — All systems operational")
+        logger.info("IRIS v1 — All systems operational")
         logger.info("OMNIS is online — 60+ capabilities ready")
         logger.info("=" * 60)
 
@@ -286,7 +286,7 @@ class IRISCore:
         return {
             "status": "healthy",
             "timestamp": datetime.now().isoformat(),
-            "version": "v9.0.0",
+            "version": "v1.0.0",
             "modules": {
                 "core": True, "orchestrator": True, "consciousness": True, "security": True,
                 "proactive": True, "autonomous": True, "voice": True, "vision": True,

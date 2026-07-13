@@ -1,5 +1,5 @@
 """
-IRIS v7.0 Core Infrastructure
+IRIS v1.0 Core Infrastructure
 """
 
 # Base agent framework

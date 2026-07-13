@@ -11,7 +11,7 @@ setup(
     version="9.0.0",
     author="Infinite Vybeflix",
     author_email="aevibron@gmail.com",
-    description="IRIS v9 — Infinite Reactive Intelligence System",
+    description="IRIS v1 — Infinite Reactive Intelligence System",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/luckyfelistine-bot/IRIS",

@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Wireshark Parser
+IRIS v1.0 — Wireshark Parser
 
 PCAP file analysis without Wireshark GUI. Uses scapy and dpkt.
 Conversation extraction, anomaly detection, file reconstruction, BPF filters.

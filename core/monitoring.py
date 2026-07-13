@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-core/monitoring.py — IRIS v7.0 System Monitoring
+core/monitoring.py — IRIS v1.0 System Monitoring
 Real-time metrics collection, alerting, and health dashboards.
 """
 

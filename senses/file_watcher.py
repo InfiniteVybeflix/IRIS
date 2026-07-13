@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — File Watcher
+IRIS v1.0 — File Watcher
 
 Monitor file system changes, unauthorized access, permission changes,
 and ransomware-like mass encryption patterns.

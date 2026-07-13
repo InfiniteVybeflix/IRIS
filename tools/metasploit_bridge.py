@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Metasploit Bridge
+IRIS v1.0 — Metasploit Bridge
 
 Metasploit Framework RPC integration. Exploit search, session management,
 payload generation. Safe-environment enforcement only.

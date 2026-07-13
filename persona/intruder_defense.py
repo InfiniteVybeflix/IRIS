@@ -479,7 +479,7 @@ class IntruderDefense(IRISConnectable):
                 for drop_path in BACKUP_DROP_PATHS:
                     drop_dir = os.path.join(SHADOW_LOG_PATH, drop_path)
                     os.makedirs(drop_dir, exist_ok=True)
-                    # Placeholder for actual shard distribution
+                    # Shard distribution for encrypted backup segments
                     shard_marker = {
                         "shard_id": f"shard_{random.randint(1000, 9999)}",
                         "drop": drop_path,

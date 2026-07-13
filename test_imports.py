@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""IRIS v8 Quick Validation Test"""
+"""IRIS v1 Quick Validation Test"""
 import sys
 import os
 
@@ -7,7 +7,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 print("=" * 60)
-print("IRIS v8 — Import Validation Test")
+print("IRIS v1 — Import Validation Test")
 print("=" * 60)
 
 errors = []
@@ -57,7 +57,7 @@ if errors:
     sys.exit(1)
 else:
     print("ALL IMPORTS SUCCESSFUL!")
-    print("IRIS v8 is ready to run.")
+    print("IRIS v1 is ready to run.")
     print()
     print("Next: Edit .env with your API keys, then run:")
     print("  python app.py")

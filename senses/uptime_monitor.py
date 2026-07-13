@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Uptime Monitor
+IRIS v1.0 — Uptime Monitor
 
 Service availability monitoring for HTTP endpoints, TCP ports,
 DNS resolution, and SSL certificate health.
@@ -62,7 +62,7 @@ class UptimeMonitor(BaseSense):
         self._monitored_certs: List[str] = []
         self._downtime_counts: Dict[str, int] = {}
         self._session = requests.Session()
-        self._session.headers.update({"User-Agent": "IRIS-v7.0/Uptime-Monitor"})
+        self._session.headers.update({"User-Agent": "IRIS-v1.0/Uptime-Monitor"})
         self._session.verify = True
 
     def add_http_target(self, url: str) -> None:

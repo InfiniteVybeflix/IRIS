@@ -1,4 +1,4 @@
-"""IRIS v9 System Routes"""
+"""IRIS v1 System Routes"""
 from datetime import datetime
 from flask import Blueprint, jsonify
 from config import config

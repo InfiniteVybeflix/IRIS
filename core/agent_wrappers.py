@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-core/agent_wrappers.py — Agent Wrappers for IRIS v7.0
+core/agent_wrappers.py — Agent Wrappers for IRIS v1.0
 Bridges all 23 standalone agents into the BaseAgent inheritance hierarchy.
 Each wrapper maps BaseAgent.execute() to the agent's native methods.
 """

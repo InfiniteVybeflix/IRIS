@@ -1,4 +1,4 @@
-# IRIS v7.0 — Main Configuration File
+# IRIS v1.0 — Main Configuration File
 # This file defines how the persona module connects to your main IRIS entry point
 
 iris:

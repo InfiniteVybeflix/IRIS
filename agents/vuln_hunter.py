@@ -5,7 +5,7 @@ Domain: cyber_security
 Role: Web app scanning, network scanning, SSL/TLS analysis, header security analysis,
       cookie security, API security testing, configuration audit, remediation reports.
 
-Author: IRIS v7.0
+Author: IRIS v1.0
 """
 
 import json

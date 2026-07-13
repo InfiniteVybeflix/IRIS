@@ -1,4 +1,4 @@
-"""IRIS v9 Intelligence Routes — Web Search, NL2Code, Vision AI, Auto-Debug"""
+"""IRIS v1 Intelligence Routes — Web Search, NL2Code, Vision AI, Auto-Debug"""
 from flask import Blueprint, request, jsonify
 from api.utils.rate_limiter import rate_limit
 from modules.web_search import web_search

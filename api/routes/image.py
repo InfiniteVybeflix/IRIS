@@ -1,4 +1,4 @@
-"""IRIS v9 Image Routes — Processing + Generation (Aevibron Imagine)"""
+"""IRIS v1 Image Routes — Processing + Generation (Aevibron Imagine)"""
 from flask import Blueprint, request, jsonify
 from modules.image_module import image_module
 from modules.image_generation import image_generation

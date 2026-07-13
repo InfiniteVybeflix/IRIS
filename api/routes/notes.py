@@ -1,4 +1,4 @@
-"""IRIS v9 Notes Routes"""
+"""IRIS v1 Notes Routes"""
 from flask import Blueprint, request, jsonify
 from skills.notes_skill import notes_skill
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 mobile_sentinel.py — GUARD
-Mobile Security Agent for IRIS v7.0
+Mobile Security Agent for IRIS v1.0
 iOS/Android security analysis, APK/IPA static analysis,
 reverse engineering helpers (jadx/apktool/frida), manifest auditing,
 permission analysis, hardcoded secret detection, certificate pinning checks.

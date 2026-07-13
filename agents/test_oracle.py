@@ -5,7 +5,7 @@ Codename: PROBE
 Domain: software_engineering
 Role: Test generation, coverage analysis, mutation testing, fuzzing, performance benchmarking, security testing.
 
-Author: IRIS v7.0
+Author: IRIS v1.0
 """
 
 import ast

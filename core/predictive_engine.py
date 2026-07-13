@@ -1,4 +1,4 @@
-"""IRIS v9 Hybrid Predictive Engine — Pre-warm context, proactive suggestions"""
+"""IRIS v1 Hybrid Predictive Engine — Pre-warm context, proactive suggestions"""
 import os
 import json
 import time

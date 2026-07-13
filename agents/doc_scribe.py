@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 doc_scribe.py — QUILL
-Technical Writing Agent for IRIS v7.0
+Technical Writing Agent for IRIS v1.0
 Report generation, Markdown/Word/PDF export, auto-docs from code (AST parsing),
 presentation generation (reveal.js/marp), changelog generation.
 """

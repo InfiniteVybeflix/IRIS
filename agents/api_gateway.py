@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 api_gateway.py — PORTAL
-API Management Agent for IRIS v7.0
+API Management Agent for IRIS v1.0
 Rate limiting, authentication (JWT/API key/OAuth2), request/response transformation,
 caching, load balancing, OpenAPI generation, real Aevibron needs this for the AI gateway.
 """

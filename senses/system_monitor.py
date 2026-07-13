@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — System Monitor
+IRIS v1.0 — System Monitor
 
 Real-time CPU, RAM, disk, network, and temperature monitoring.
 Alerts on threshold breaches.

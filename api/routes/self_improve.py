@@ -1,4 +1,4 @@
-"""IRIS v9 Self-Improvement Routes"""
+"""IRIS v1 Self-Improvement Routes"""
 from flask import Blueprint, request, jsonify
 from modules.self_improve import self_improvement
 

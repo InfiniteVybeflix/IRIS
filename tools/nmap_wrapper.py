@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Nmap Wrapper
+IRIS v1.0 — Nmap Wrapper
 
 Real nmap integration for port scanning, service detection, OS fingerprinting,
 and network discovery. Parses XML and grepable output into structured dicts.

@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — MissionArchive
+IRIS v1.0 — MissionArchive
 Complete mission logs with outcomes.
 
 Archives every mission with full details, enables search across

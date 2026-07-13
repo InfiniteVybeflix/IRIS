@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Planner
+IRIS v1.0 — Planner
 Mission planning and goal decomposition engine.
 
 Breaks complex goals into step-by-step plans, sequences tasks with

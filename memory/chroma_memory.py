@@ -1,4 +1,4 @@
-"""IRIS v9 Hybrid Chroma Memory - Persistent Vector Database"""
+"""IRIS v1 Hybrid Chroma Memory - Persistent Vector Database"""
 import os
 import json
 from typing import Dict, List, Optional

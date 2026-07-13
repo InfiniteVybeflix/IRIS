@@ -1,4 +1,4 @@
-"""IRIS v8 Image Module — Background removal, processing, generation"""
+"""IRIS v1 Image Module — Background removal, processing, generation"""
 import os
 import requests
 import base64

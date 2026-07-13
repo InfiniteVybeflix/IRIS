@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Code Analyzer
+IRIS v1.0 — Code Analyzer
 
 Static analysis engine supporting Semgrep, Bandit, and custom regex.
 Generates SARIF output for CI/CD integration.

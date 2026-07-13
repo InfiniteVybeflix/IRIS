@@ -1,4 +1,4 @@
-"""IRIS v9 Hybrid Voice System — Live Mode with 3D Face"""
+"""IRIS v1 Hybrid Voice System — Live Mode with 3D Face"""
 import os
 import asyncio
 import edge_tts

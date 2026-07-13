@@ -1,4 +1,4 @@
-"""IRIS v9 Image Generation — Aevibron Imagine API
+"""IRIS v1 Image Generation — Aevibron Imagine API
 Supports: Aevibron Imagine V1 (high detail) and Imagine Flash (fast drafts)
 Endpoint: POST https://aevibron-gateway.vercel.app/api/v1/images
 """

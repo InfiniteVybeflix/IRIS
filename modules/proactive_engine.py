@@ -1,4 +1,4 @@
-"""IRIS v9 Proactive Engine — Jarvis-Level Context Awareness"""
+"""IRIS v1 Proactive Engine — Jarvis-Level Context Awareness"""
 import os
 import json
 import time

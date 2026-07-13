@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 voice_herald.py — ECHO
-Voice Operations Agent for IRIS v7.0
+Voice Operations Agent for IRIS v1.0
 TTS with multiple voices (pyttsx3/gTTS/ElevenLabs API), speech recognition (Whisper/Vosk),
 voice cloning, multi-language support, wake word detection (Porcupine/PV).
 """

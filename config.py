@@ -1,4 +1,4 @@
-"""IRIS v9 Configuration — Infinite Reactive Intelligence System
+"""IRIS v1 Configuration — Infinite Reactive Intelligence System
 Jarvis Edition: Vercel-ready, Postgres-backed, Proactive AI
 """
 import os

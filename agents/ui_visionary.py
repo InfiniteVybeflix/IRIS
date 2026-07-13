@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ui_visionary.py — PIXEL
-Frontend/UI Generation Agent for IRIS v7.0
+Frontend/UI Generation Agent for IRIS v1.0
 HTML/CSS/JS generation, React/Vue component scaffolding, accessibility audit,
 responsive design validation, theme generation, component library management,
 real-time preview server, design token extraction.

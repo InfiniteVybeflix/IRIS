@@ -1,4 +1,4 @@
-"""IRIS v9 Hybrid Smart Memory — Vector + Episodic + Semantic Memory"""
+"""IRIS v1 Hybrid Smart Memory — Vector + Episodic + Semantic Memory"""
 import json
 import re
 from datetime import datetime

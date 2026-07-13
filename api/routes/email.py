@@ -1,4 +1,4 @@
-"""IRIS v9 Email Routes"""
+"""IRIS v1 Email Routes"""
 from flask import Blueprint, request, jsonify
 from api.utils.rate_limiter import rate_limit
 from modules.email_module import email_module

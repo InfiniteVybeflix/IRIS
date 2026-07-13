@@ -1,4 +1,4 @@
-# IRIS v9 — Infinite Reactive Intelligence System
+# IRIS v1 — Infinite Reactive Intelligence System
 
 <p align="center">
   <strong>Jarvis-Level AI. Fully Autonomous. Multimodal. Yours.</strong>
@@ -18,14 +18,14 @@ IRIS (Infinitum Reincarnatio Intelligentia Sempiterna) is a **Jarvis-level auton
 - Protects her creator with intruder defense and emotional bonding
 - Dreams, grows, and evolves her own personality
 
-**Version:** v9.0.0 | **Status:** Production Ready
+**Version:** v1.0.0 | **Status:** Production Ready
 
 ---
 
 ## Architecture
 
 ```
-IRIS v9 CORE
+IRIS v1 CORE
 ├── app.py                    → Entry point, Flask app, IRISCore singleton
 ├── core/                     → Infrastructure
 │   ├── db.py                 → Dual Postgres/SQLite engine
@@ -60,6 +60,41 @@ IRIS v9 CORE
 │   ├── voicerss_module.py    → VoiceRSS TTS
 │   ├── chess_engine.py       → AI chess training
 │   └── copilot_bridge.py     → IDE integration
+├── skills/                   → 60+ capability skills (OMNIS router)
+│   ├── intelligence/         → Research, memory, voice, predictive, docs, local LLM
+│   │   ├── research_engine/  → Web search, academic search, URL fetch
+│   │   ├── smart_memory/     → Semantic memory storage & retrieval
+│   │   ├── voice_system/     → TTS synthesis & STT transcription
+│   │   ├── predictive_intel/ → Trend forecasting & anomaly detection
+│   │   ├── documentation/    → Auto-generate docs from code/specs
+│   │   └── local_model/      → Local LLM via Ollama/llama.cpp
+│   ├── orchestration/        → Consciousness, multi-agent, self-healing
+│   │   ├── consciousness/    → Cognitive awareness & emotional reflection
+│   │   ├── multi_agent/      → Swarm coordination & task delegation
+│   │   └── self_healing/     → Self-diagnostics & auto-repair
+│   ├── productivity/         → Charts, code, email, scraper, automation
+│   │   ├── chart_manager/    → Bar, line, pie, scatter, heatmap charts
+│   │   ├── code_engine/      → Code generation, review, audit, translation
+│   │   ├── email_reporter/   → Formatted emails, reports, digests
+│   │   ├── web_scraper/      → Structured data extraction & crawling
+│   │   └── system_automation/→ File ops, scheduled tasks, workflows
+│   ├── security/             → Cyber, forensics, OSINT, threat hunting
+│   │   ├── cyber_security/   → Vuln scanning, pentest, hardening
+│   │   ├── threat_hunter/    → IOC search, behavioral analysis
+│   │   ├── forensics/        → Digital forensics & artifact analysis
+│   │   ├── osint/            → Open-source intelligence gathering
+│   │   ├── reverse_engineering/ → Binary analysis & disassembly
+│   │   ├── cloud_security/   → Cloud config audit & IAM review
+│   │   ├── container_security/ → Docker/K8s security scanning
+│   │   ├── blockchain_security/ → Smart contract audit
+│   │   ├── deception_tech/   → Honeypot deployment
+│   │   └── cyber_range/      → Scenario creation & execution
+│   ├── communication/        → Contacts, messaging, meetings, screen share
+│   ├── finance/              → Budgeting, finance manager, shopping
+│   ├── health_fitness/       → Fitness, health tracker, nutrition, sleep
+│   ├── media/                → Audio, image, music, screenshot, generation
+│   ├── personal_productivity/→ Calendar, notes, reminders, tasks, alarms, timer
+│   └── utilities/            → Calculator, weather, OCR, QR, translation, files
 ├── memory/                   → Memory systems
 │   ├── smart_memory.py       → Vector + episodic + semantic
 │   ├── chroma_memory.py      → ChromaDB vector store
@@ -135,6 +170,35 @@ IRIS v9 CORE
     ├── robotics/           → LeRobot Pi0, SmolVLA
     └── science/            → AlphaFold 3, ESMFold
 ```
+
+---
+
+
+---
+
+## OMNIS — Universal Skills Agent
+
+OMNIS (Omniscient Mastery & Navigation Intelligence System) is the single entry point for all 60+ capabilities in IRIS.
+
+```python
+# Execute any skill directly
+iris.omnis.execute("web_search", {"query": "latest AI papers"})
+
+# Smart natural-language routing
+iris.omnis.smart_route("find me the best pizza place nearby")
+
+# Chain up to 25 capabilities in sequence
+iris.omnis.chain([
+    {"capability": "web_search", "params": {"query": "..."}},
+    {"capability": "chart_generation", "params": {"type": "bar"}},
+    {"capability": "email_report", "params": {"subject": "..."}}
+])
+
+# Discover what OMNIS can do
+iris.omnis.list_capabilities()
+```
+
+All skills are organized into 8 domains: **intelligence**, **orchestration**, **productivity**, **security**, **communication**, **finance**, **health_fitness**, **media**, **personal_productivity**, and **utilities**.
 
 ---
 

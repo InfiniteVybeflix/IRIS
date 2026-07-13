@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — BaseMemory
+IRIS v1.0 — BaseMemory
 Abstract base class for all memory systems.
 
 Provides the foundation for persistent, queryable memory with:

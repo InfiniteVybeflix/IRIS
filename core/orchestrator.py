@@ -1,4 +1,4 @@
-"""IRIS v9 Hybrid Orchestrator — Bulletproof Agent Brain with Structured Output"""
+"""IRIS v1 Hybrid Orchestrator — Bulletproof Agent Brain with Structured Output"""
 import json
 import time
 import uuid
@@ -66,7 +66,7 @@ BEHAVIOR RULES:
 When you need to use tools, you will receive tool definitions and respond with tool_calls."""
 
 class AgentOrchestrator:
-    """IRIS v9 Hybrid central brain. Handles the observe-think-act-verify-reflect loop with structured output."""
+    """IRIS v1 Hybrid central brain. Handles the observe-think-act-verify-reflect loop with structured output."""
 
 
 

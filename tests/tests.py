@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Unit Test Stubs
+IRIS v1.0 — Unit Test Stubs
 Comprehensive test coverage for all memory and cortex modules.
 
 Run with: python -m pytest tests/ -v

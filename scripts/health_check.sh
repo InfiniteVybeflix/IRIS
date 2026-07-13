@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# IRIS v7.0 Health Check Script
+# IRIS v1.0 Health Check Script
 
 python3 -c "
 from core.bootstrap import bootstrap_all, shutdown
 import json
 
-c = bootstrap_all(data_dir='/mnt/agents/output/iris_v7/data', max_workers=2)
+c = bootstrap_all(data_dir='data', max_workers=2)
 health = c.registry.health_check_all()
 
 print('═' * 60)

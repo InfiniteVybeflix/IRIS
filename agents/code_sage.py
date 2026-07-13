@@ -5,7 +5,7 @@ Codename: SCRIPT
 Domain: software_engineering
 Role: Code generation, review, refactoring, debugging, documentation, CI/CD pipeline generation.
 
-Author: IRIS v7.0
+Author: IRIS v1.0
 """
 
 import ast

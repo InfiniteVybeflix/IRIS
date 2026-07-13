@@ -1,4 +1,4 @@
-"""IRIS v9 Hybrid Autonomous Task Engine - Works While You Sleep"""
+"""IRIS v1 Hybrid Autonomous Task Engine - Works While You Sleep"""
 import os
 import json
 import threading

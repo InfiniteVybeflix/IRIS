@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-core/api_server.py — IRIS v7.0 REST API Server
+core/api_server.py — IRIS v1.0 REST API Server
 Exposes the Aevibron Agent Corps via HTTP for external integration.
 """
 
@@ -57,7 +57,7 @@ monitor = None
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
-        title="IRIS v7.0 API",
+        title="IRIS v1.0 API",
         description="Aevibron Agent Corps — Multi-Agent System API",
         version="7.0.0",
     )
@@ -83,7 +83,7 @@ def create_app() -> FastAPI:
     @app.get("/")
     async def root():
         return {
-            "name": "IRIS v7.0",
+            "name": "IRIS v1.0",
             "status": "online",
             "agents": commander.registry.get_stats()["total_agents"] if commander else 0,
         }

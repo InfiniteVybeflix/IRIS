@@ -1,6 +1,6 @@
-# IRIS v7.0 — Memory & Cortex System (Complete Package)
+# IRIS v1.0 — Memory & Cortex System (Complete Package)
 
-> This file combines all documentation, code, and requirements for the IRIS v7.0 cognitive layer.
+> This file combines all documentation, code, and requirements for the IRIS v1.0 cognitive layer.
 > Generated from: README_memo-cortex.md, __init__.py, iris_core.py, requirements.txt
 
 ---
@@ -22,7 +22,7 @@
 
 # 1. SYSTEM OVERVIEW
 
-This is the **cognitive layer** of IRIS v7.0 — her memory and reasoning engine. Every memory persists. Every reasoning chain produces real decisions. IRIS learns, plans, and adapts.
+This is the **cognitive layer** of IRIS v1.0 — her memory and reasoning engine. Every memory persists. Every reasoning chain produces real decisions. IRIS learns, plans, and adapts.
 
 This package contains two subsystems:
 - **`memory/`** — Persistent, queryable, learning-capable memory systems
@@ -196,7 +196,7 @@ Every module:
 
 ```python
 """
-IRIS v7.0 Memory & Cortex System — Core Package
+IRIS v1.0 Memory & Cortex System — Core Package
 The cognitive layer of the most powerful autonomous intelligence.
 
 This package contains all memory and reasoning modules that form
@@ -249,7 +249,7 @@ __all__ = ["memory", "cortex", "logger"]
 
 """
 """
-IRIS v7.0 — IRISCore
+IRIS v1.0 — IRISCore
 The central brain that wires all memory and cortex modules together.
 
 This is the integration layer that connects every memory system and
@@ -311,7 +311,7 @@ logger = logging.getLogger("iris.core")
 
 class IRISCore:
     """
-    Central orchestrator for IRIS v7.0 cognitive architecture.
+    Central orchestrator for IRIS v1.0 cognitive architecture.
 
     Manages all memory and cortex modules, handles cross-module
     communication, and provides high-level mission execution.
@@ -343,7 +343,7 @@ class IRISCore:
         )
 
         self.status = "ready"
-        logger.info("IRIS Core v7.0 initialized successfully")
+        logger.info("IRIS Core v1.0 initialized successfully")
 
     def _init_memory(self) -> "MemoryHub":
         """Initialize all memory subsystems."""
@@ -759,7 +759,7 @@ if __name__ == "__main__":
 # 8. REQUIREMENTS
 
 ```
-# IRIS v7.0 — Memory & Cortex System Dependencies
+# IRIS v1.0 — Memory & Cortex System Dependencies
 # Core (always required)
 numpy>=1.24.0
 
@@ -804,7 +804,7 @@ For unit tests, stub each module's dependencies and verify:
 
 # VERSION
 
-**IRIS v7.0.0** — Cognitive Layer
+**IRIS v1.0.0** — Cognitive Layer
 
 Built for the most powerful autonomous intelligence in history.
 

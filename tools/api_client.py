@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — API Client
+IRIS v1.0 — API Client
 
 Universal REST, GraphQL, and WebSocket client with retry logic,
 exponential backoff, rate limiting, and authentication.
@@ -34,7 +34,7 @@ class APIClient(BaseTool):
         self.timeout = timeout
         self._session = requests.Session()
         self._session.headers.update(default_headers or {})
-        self._session.headers.update({"User-Agent": "IRIS-v7.0/Operational-Layer", "Accept": "application/json"})
+        self._session.headers.update({"User-Agent": "IRIS-v1.0/Operational-Layer", "Accept": "application/json"})
         self._session.verify = True
         self._last_request_time: float = 0.0
 

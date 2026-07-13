@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — SemanticSearch
+IRIS v1.0 — SemanticSearch
 Vector embeddings for memory retrieval.
 
 Generates dense vector embeddings for text documents, enabling

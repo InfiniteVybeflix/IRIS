@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — SQLMap Wrapper
+IRIS v1.0 — SQLMap Wrapper
 
 Real sqlmap integration for SQL injection detection and exploitation.
 Mandatory authorization checks prevent unauthorized testing.

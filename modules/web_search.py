@@ -1,4 +1,4 @@
-"""IRIS v9 Web Search — Real-time Search with Source Attribution
+"""IRIS v1 Web Search — Real-time Search with Source Attribution
 Uses DuckDuckGo + optional web scraping for full content extraction.
 """
 import requests

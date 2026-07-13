@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — Git Engine
+IRIS v1.0 — Git Engine
 
 Git operations, repository analysis, commit inspection, secret detection,
 vulnerability checking, and changelog generation.

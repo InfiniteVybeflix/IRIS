@@ -1,4 +1,4 @@
-"""IRIS v9 Hybrid Copilot Bridge - IDE Integration"""
+"""IRIS v1 Hybrid Copilot Bridge - IDE Integration"""
 import os
 import json
 from typing import Dict, List, Optional

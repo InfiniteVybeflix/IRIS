@@ -1,5 +1,5 @@
 """
-IRIS v7.0 — HypothesisTester
+IRIS v1.0 — HypothesisTester
 "What-if" simulation and falsification engine.
 
 Generates hypotheses from observations, tests them against available

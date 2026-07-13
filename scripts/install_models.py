@@ -114,7 +114,7 @@ Examples:
 
     # Detect hardware
     print("=" * 70)
-    print("IRIS v9 — Model Installer")
+    print("IRIS v1 — Model Installer")
     print("=" * 70)
 
     detector = HardwareDetector()

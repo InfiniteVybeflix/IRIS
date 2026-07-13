@@ -1,4 +1,4 @@
-"""IRIS v8 Core Models — Structured Output & Tool Schemas"""
+"""IRIS v1 Core Models — Structured Output & Tool Schemas"""
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Literal
 

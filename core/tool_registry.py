@@ -1,4 +1,4 @@
-"""IRIS v8 Tool Registry — 25+ Tools with Structured Schemas"""
+"""IRIS v1 Tool Registry — 25+ Tools with Structured Schemas"""
 import os
 import json
 import subprocess
