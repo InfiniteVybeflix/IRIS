@@ -20,6 +20,7 @@ class Database:
         self.use_postgres = config.USE_POSTGRES
         self.db_path = config.LOCAL_DB_PATH.replace("sqlite:///", "") if config.LOCAL_DB_PATH else "/tmp/iris.db"
         self.pg_conn = None
+        self._mem_conn = None  # cached in-memory SQLite connection
         self._db_available = True
 
         try:
@@ -71,9 +72,18 @@ class Database:
                 self._init_postgres()
                 return self.pg_conn
         else:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            return conn
+            # For in-memory SQLite, cache the connection — otherwise each
+            # sqlite3.connect(":memory:") creates a SEPARATE empty database
+            # and tables don't persist between _execute() calls.
+            if self.db_path == ":memory:":
+                if self._mem_conn is None:
+                    self._mem_conn = sqlite3.connect(":memory:")
+                    self._mem_conn.row_factory = sqlite3.Row
+                return self._mem_conn
+            else:
+                conn = sqlite3.connect(self.db_path)
+                conn.row_factory = sqlite3.Row
+                return conn
 
     def _execute(self, query: str, params: tuple = ()):
         max_retries = 3
@@ -280,10 +290,19 @@ class Database:
         """)
 
         # Default owner
-        self._execute(
-            f"INSERT {or_ignore} INTO owner (id, name, aliases) VALUES (1, {ph}, {ph})",
-            (config.OWNER_NAME, config.OWNER_ALIAS)
-        )
+        # Note: SQL syntax differs between SQLite and PostgreSQL for conflict handling:
+        #   SQLite:     INSERT OR IGNORE INTO owner ...
+        #   PostgreSQL: INSERT INTO owner ... ON CONFLICT DO NOTHING
+        if pg:
+            self._execute(
+                f"INSERT INTO owner (id, name, aliases) VALUES (1, {ph}, {ph}) ON CONFLICT DO NOTHING",
+                (config.OWNER_NAME, config.OWNER_ALIAS)
+            )
+        else:
+            self._execute(
+                f"INSERT OR IGNORE INTO owner (id, name, aliases) VALUES (1, {ph}, {ph})",
+                (config.OWNER_NAME, config.OWNER_ALIAS)
+            )
 
     # === MESSAGES ===
     def save_message(self, session_id: str, role: str, content: str, reasoning: str = None,

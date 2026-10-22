@@ -23,7 +23,12 @@ class SmartMemory:
             from sentence_transformers import SentenceTransformer
             self.encoder = SentenceTransformer('all-MiniLM-L6-v2')
         except Exception as e:
-            db.log("WARNING", "smart_memory", f"Encoder init failed: {e}")
+            # Don't crash if sentence_transformers isn't installed —
+            # also don't crash if db.log() fails (tables might not exist yet)
+            try:
+                db.log("WARNING", "smart_memory", f"Encoder init failed: {e}")
+            except Exception:
+                pass
 
     def learn_about_owner(self, fact: str, category: str = "general", importance: int = 5) -> bool:
         """Learn something new about the owner"""
