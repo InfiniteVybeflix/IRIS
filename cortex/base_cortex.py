@@ -86,28 +86,51 @@ class BaseCortex(IRISConnectable, ABC):
         """
         Initialize BaseCortex.
 
-        Args:
-            db_path: Path to SQLite database for reasoning logs.
-                     Defaults to env var IRIS_CORTEX_DB or "iris_cortex.db".
-            iris_core: Reference to IRIS core.
+        PROPER ARCHITECTURE:
+        - When PostgreSQL is available → uses db.store_kv()/get_kv()
+          for reasoning log persistence. No SQLite files.
+        - When PostgreSQL is NOT available → uses SQLite (local dev).
+        - NEVER crashes on read-only filesystems.
         """
         super().__init__(iris_core=iris_core)
-        self.db_path = db_path or os.getenv("IRIS_CORTEX_DB", "iris_cortex.db")
-        self._conn: Optional[sqlite3.Connection] = None
-        self._init_storage()
+        self._module_name = self.__class__.__name__
+        self._use_postgres = False
+
+        try:
+            from core.db import db
+            if db._db_available and db.use_postgres:
+                self._use_postgres = True
+                self._db = db
+                logger.info(f"BaseCortex [{self._module_name}]: using PostgreSQL (persistent)")
+        except Exception:
+            pass
+
+        if not self._use_postgres:
+            raw_path = db_path or os.getenv("IRIS_CORTEX_DB", "iris_cortex.db")
+            if not os.path.isabs(raw_path) and os.environ.get("VERCEL"):
+                raw_path = os.path.join("/tmp/iris-data", raw_path)
+            self.db_path = raw_path
+            self._conn: Optional[sqlite3.Connection] = None
+            self._init_storage()
+            logger.info(f"BaseCortex [{self._module_name}]: using SQLite at {self.db_path}")
+        else:
+            self.db_path = "postgresql"
+
         self.status = "ready"
-        logger.info(f"BaseCortex initialized: db={self.db_path}")
 
     def _init_storage(self) -> None:
-        """Initialize SQLite storage for reasoning logs."""
+        """Initialize SQLite storage (local dev only)."""
         try:
-            os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
+            db_dir = os.path.dirname(self.db_path)
+            if db_dir:
+                os.makedirs(db_dir, exist_ok=True)
             self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA journal_mode=WAL;")
             self._conn.execute("PRAGMA foreign_keys=ON;")
             self._create_tables()
         except Exception as exc:
-            logger.warning(f"Cortex storage init failed: {exc}")
+            logger.warning(f"Cortex storage init failed ({exc})")
             self._conn = None
 
     def _create_tables(self) -> None:

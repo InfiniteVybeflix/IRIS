@@ -1,94 +1,99 @@
-"""IRIS Settings Manager — encrypted key storage + provider configuration.
+"""IRIS Settings Manager — PostgreSQL-backed settings storage.
 
-Users configure LLM providers + API keys from the Settings UI (not .env).
-Keys are encrypted client-side (AES-GCM via Web Crypto API) before being
-sent to the server. The server stores them encrypted in a JSON file and
-decrypts only at LLM call time (in memory, never logged).
+PROPER ARCHITECTURE:
+- When PostgreSQL (Supabase) is available → settings stored in
+  kv_store table with namespace="settings". Persistent across
+  cold starts, shared across instances. No JSON files, no /tmp/.
+- When PostgreSQL is NOT available (local dev) → falls back to
+  a JSON file at data/settings.json.
+- NEVER crashes — always returns something useful.
 
-All keys are OPTIONAL — IRIS works without any keys. Adding a key
-enables that provider. Removing a key disables it. No provider is
-required for IRIS to boot.
+All keys are OPTIONAL — IRIS works without any keys configured.
 """
 import json
-import os
 import logging
+import os
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-# Config file path — stored in IRIS data dir (uses /tmp/ on Vercel)
+# Try to use core/db (PostgreSQL) for persistent settings
+_USE_POSTGRES = False
 try:
-    from config import config
-    DATA_DIR = config.DATA_DIR
-except ImportError:
-    DATA_DIR = os.environ.get("IRIS_DATA_DIR", "/tmp/iris-data")
-CONFIG_FILE = os.path.join(DATA_DIR, "settings.json")
+    from core.db import db
+    if db._db_available and db.use_postgres:
+        _USE_POSTGRES = True
+except Exception:
+    pass
 
-# Ensure data dir exists (may fail on read-only FS — that's OK)
-try:
-    os.makedirs(DATA_DIR, exist_ok=True)
-except OSError:
-    pass  # Read-only filesystem — settings will use in-memory fallback
+# Fallback: JSON file for local dev
+if not _USE_POSTGRES:
+    try:
+        from config import config
+        _DATA_DIR = config.DATA_DIR
+    except ImportError:
+        _DATA_DIR = os.environ.get("IRIS_DATA_DIR", "/tmp/iris-data")
+else:
+    _DATA_DIR = None
+
+_CONFIG_FILE = os.path.join(_DATA_DIR, "settings.json") if _DATA_DIR else None
 
 
 def _load_config() -> Dict[str, Any]:
-    """Load the settings JSON file. Returns empty dict if not found."""
-    try:
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+    """Load settings — PostgreSQL if available, JSON file otherwise."""
+    if _USE_POSTGRES:
+        try:
+            data = db.get_json("settings", "config")
+            return data if isinstance(data, dict) else {}
+        except Exception as e:
+            logger.warning(f"PostgreSQL settings load failed: {e}")
+    # Fall back to JSON file
+    if _CONFIG_FILE:
+        try:
+            with open(_CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+    return {}
 
 
 def _save_config(config: Dict[str, Any]) -> None:
-    """Save the settings JSON file."""
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=2, default=str)
+    """Save settings — PostgreSQL if available, JSON file otherwise."""
+    if _USE_POSTGRES:
+        try:
+            db.store_json("settings", "config", config)
+            return
+        except Exception as e:
+            logger.warning(f"PostgreSQL settings save failed: {e}")
+    # Fall back to JSON file
+    if _CONFIG_FILE:
+        try:
+            os.makedirs(os.path.dirname(_CONFIG_FILE), exist_ok=True)
+            with open(_CONFIG_FILE, "w") as f:
+                json.dump(config, f, indent=2, default=str)
+        except Exception as e:
+            logger.warning(f"JSON settings save failed: {e}")
 
 
 def mask_key(key: str) -> str:
-    """Mask a key for display — show first 4 + last 4 chars."""
     if not key or len(key) < 12:
         return ""
     return key[:4] + "••••••••" + key[-4:]
 
 
 def get_settings() -> Dict[str, Any]:
-    """Get current settings — keys are MASKED for security.
-
-    Returns:
-        {
-            "llm_backend": "auto" | "aevibron" | "ollama_local" | "ollama_cloud" | "groq" | "openai" | "custom",
-            "providers": {
-                "aevibron": {"url": "...", "key_masked": "gsk_••••1234", "configured": true},
-                "ollama_local": {"host": "http://localhost:11434", "configured": true},
-                "groq": {"key_masked": "gsk_••••5678", "configured": true},
-                ...
-            },
-            "integrations": {
-                "github": {"token_masked": "ghp_••••9012", "configured": true},
-                "vercel": {"token_masked": "", "configured": false},
-                ...
-            },
-            "auto_select": true,
-            "updated_at": "2026-10-21T..."
-        }
-    """
     config = _load_config()
     providers = config.get("providers", {})
     integrations = config.get("integrations", {})
-
-    # Build masked response
     result = {
         "llm_backend": config.get("llm_backend", "auto"),
         "auto_select": config.get("auto_select", True),
         "providers": {},
         "integrations": {},
         "updated_at": config.get("updated_at", None),
+        "storage": "postgresql" if _USE_POSTGRES else "json_file",
     }
-
-    # Mask provider keys
     provider_fields = {
         "aevibron": [("url", "url"), ("key", "key_masked"), ("x_aevibron_key", "x_aevibron_key_masked")],
         "ollama_local": [("host", "host")],
@@ -103,15 +108,11 @@ def get_settings() -> Dict[str, Any]:
         for raw_field, masked_field in fields:
             val = p.get(raw_field, "")
             if "masked" in masked_field:
-                masked_p[mask_field_name(masked_field)] = mask_key(val)
+                masked_p[masked_field] = mask_key(val)
                 masked_p["configured"] = bool(val)
-            elif raw_field == "model":
-                masked_p[masked_field] = val
             else:
                 masked_p[masked_field] = val
         result["providers"][name] = masked_p
-
-    # Mask integration keys
     for name in ["github", "vercel", "cloudflare"]:
         i = integrations.get(name, {})
         token = i.get("token", "")
@@ -119,57 +120,26 @@ def get_settings() -> Dict[str, Any]:
             "token_masked": mask_key(token),
             "configured": bool(token),
         }
-
     return result
 
 
-def mask_field_name(field: str) -> str:
-    return field
-
-
 def save_settings(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Save settings from the UI. Keys should be encrypted client-side.
-
-    The client sends:
-        {
-            "llm_backend": "groq",
-            "auto_select": false,
-            "providers": {
-                "groq": {"key": "gsk_xxx_encrypted_base64", ...},
-                ...
-            },
-            "integrations": {
-                "github": {"token": "ghp_xxx_encrypted_base64"},
-                ...
-            }
-        }
-
-    The server stores the encrypted values as-is. Decryption happens
-    at LLM call time using the server-side decryption key.
-    """
     config = _load_config()
-
-    # Update top-level settings
     if "llm_backend" in data:
         config["llm_backend"] = data["llm_backend"]
     if "auto_select" in data:
         config["auto_select"] = data["auto_select"]
-
-    # Update providers (merge — only update fields that are provided)
     if "providers" in data:
         current_providers = config.get("providers", {})
         for name, values in data["providers"].items():
             current = current_providers.get(name, {})
             for k, v in values.items():
-                if v:  # Only update if value is non-empty
+                if v:
                     current[k] = v
                 elif k in current and v is None:
-                    # Clear the field
                     del current[k]
             current_providers[name] = current
         config["providers"] = current_providers
-
-    # Update integrations
     if "integrations" in data:
         current_integrations = config.get("integrations", {})
         for name, values in data["integrations"].items():
@@ -181,48 +151,26 @@ def save_settings(data: Dict[str, Any]) -> Dict[str, Any]:
                     del current[k]
             current_integrations[name] = current
         config["integrations"] = current_integrations
-
     config["updated_at"] = datetime.utcnow().isoformat()
-
     _save_config(config)
-    logger.info("[settings] saved — backend=%s, auto=%s", config.get("llm_backend"), config.get("auto_select"))
-
-    return {"success": True, "message": "Settings saved", "updated_at": config["updated_at"]}
+    logger.info("[settings] saved — backend=%s, llm=%s", "postgresql" if _USE_POSTGRES else "json", config.get("llm_backend"))
+    return {"success": True, "message": "Settings saved", "updated_at": config["updated_at"],
+            "storage": "postgresql" if _USE_POSTGRES else "json_file"}
 
 
 def get_provider_config(provider: str) -> Dict[str, Any]:
-    """Get the decrypted config for a specific provider (for internal use).
-
-    This is called by llm_router when it needs to make an LLM call.
-    Keys are returned as-is (still encrypted from the client) — the
-    router decrypts them at call time.
-
-    If the provider isn't configured, returns empty dict.
-    """
     config = _load_config()
-    providers = config.get("providers", {})
-    return providers.get(provider, {})
+    return config.get("providers", {}).get(provider, {})
 
 
 def get_integration_config(name: str) -> Dict[str, Any]:
-    """Get the config for a specific integration (github, vercel, etc.)."""
     config = _load_config()
-    integrations = config.get("integrations", {})
-    return integrations.get(name, {})
+    return config.get("integrations", {}).get(name, {})
 
 
 def get_llm_backend() -> str:
-    """Get the currently selected LLM backend."""
-    config = _load_config()
-    return config.get("llm_backend", "auto")
+    return _load_config().get("llm_backend", "auto")
 
 
 def is_auto_select() -> bool:
-    """Check if auto-select mode is enabled."""
-    config = _load_config()
-    return config.get("auto_select", True)
-
-
-def get_all_config() -> Dict[str, Any]:
-    """Get the full unmasked config (for internal use only)."""
-    return _load_config()
+    return _load_config().get("auto_select", True)

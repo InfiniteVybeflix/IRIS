@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
 
 
+
+
 class MessageBus:
     """
     MessageBus — The neural pathway of the Aevibron Agent Corps.
@@ -56,17 +58,30 @@ class MessageBus:
             handler.setFormatter(formatter)
             self._logger.addHandler(handler)
 
-        if persistence_path is None:
+        # Check if PostgreSQL is available for persistent storage
+        self._use_postgres = False
+        try:
+            from core.db import db
+            if db._db_available and db.use_postgres:
+                self._use_postgres = True
+                self._db = db
+        except Exception:
+            pass
+
+        if not self._use_postgres:
+            if persistence_path is None:
+                try:
+                    from config import config
+                    default_dir = os.path.join(config.TMP_DIR, "agents")
+                    os.makedirs(default_dir, exist_ok=True)
+                    persistence_path = os.path.join(default_dir, "message_bus.json")
+                except Exception:
+                    persistence_path = os.path.join("/tmp", "iris-message_bus.json")
+            self._persistence_path = persistence_path
             try:
-                from config import config
-                default_dir = os.path.join(config.DATA_DIR, "agents")
-                os.makedirs(default_dir, exist_ok=True)
-                persistence_path = os.path.join(default_dir, "message_bus.json")
+                Path(self._persistence_path).parent.mkdir(parents=True, exist_ok=True)
             except Exception:
-                persistence_path = os.path.join(os.getcwd(), "data", "agents", "message_bus.json")
-                os.makedirs(os.path.dirname(persistence_path), exist_ok=True)
-        self._persistence_path = persistence_path
-        Path(self._persistence_path).parent.mkdir(parents=True, exist_ok=True)
+                pass
 
         self._logger.info("[MessageBus] Neural pathway initialized.")
 
@@ -269,10 +284,12 @@ class MessageBus:
                     "persisted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 }
 
-            with open(self._persistence_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, default=str)
+            if self._use_postgres:
+                self._db.store_json("message_bus", "state", data)
+            else:
+                with open(self._persistence_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, default=str)
 
-            self._logger.info(f"[MessageBus] History persisted to {self._persistence_path}")
             return True
 
         except Exception as e:
@@ -287,12 +304,16 @@ class MessageBus:
             bool: True if load succeeded.
         """
         try:
-            if not os.path.exists(self._persistence_path):
-                self._logger.info("[MessageBus] No persistence file found. Starting fresh.")
-                return False
+            if self._use_postgres:
+                data = self._db.get_json("message_bus", "state")
+            else:
+                if not os.path.exists(self._persistence_path):
+                    return False
+                with open(self._persistence_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
 
-            with open(self._persistence_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            if not data:
+                return False
 
             with self._lock:
                 self._all_messages = data.get("all_messages", [])

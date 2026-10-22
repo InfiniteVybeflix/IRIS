@@ -28,7 +28,11 @@ class SandboxExecutor:
 
     def __init__(self):
         self.sandbox_dir = os.path.join(config.DATA_DIR, "sandbox_runs")
-        os.makedirs(self.sandbox_dir, exist_ok=True)
+        try:
+            os.makedirs(self.sandbox_dir, exist_ok=True)
+        except OSError:
+            self.sandbox_dir = '/tmp/iris-data/sandbox_runs'
+            os.makedirs(self.sandbox_dir, exist_ok=True)
         self.max_time = 30  # seconds
         self.max_memory = 512 * 1024 * 1024  # 512MB
 

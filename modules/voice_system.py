@@ -22,7 +22,11 @@ class VoiceSystem:
     def __init__(self):
         self.voice = config.EDGE_TTS_VOICE
         self.temp_dir = os.path.join(config.DATA_DIR, "voice_temp")
-        os.makedirs(self.temp_dir, exist_ok=True)
+        try:
+            os.makedirs(self.temp_dir, exist_ok=True)
+        except OSError:
+            self.temp_dir = '/tmp/iris-data/voice_temp'
+            os.makedirs(self.temp_dir, exist_ok=True)
         self.current_emotion = "neutral"
 
     async def speak(self, text: str, emotion: str = "neutral") -> Dict:

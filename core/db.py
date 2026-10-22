@@ -289,6 +289,21 @@ class Database:
             )
         """)
 
+        # Key-value store — used by settings_manager, base_memory,
+        # base_cortex, task_queue, shared_memory, communication.
+        # This is the PROPER way to persist data on Vercel/Supabase.
+        self._execute(f"""
+            CREATE TABLE IF NOT EXISTS kv_store (
+                namespace TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT,
+                metadata TEXT,
+                created_at {ts} DEFAULT {now},
+                updated_at {ts} DEFAULT {now},
+                PRIMARY KEY (namespace, key)
+            )
+        """)
+
         # Default owner
         # Note: SQL syntax differs between SQLite and PostgreSQL for conflict handling:
         #   SQLite:     INSERT OR IGNORE INTO owner ...
@@ -607,6 +622,63 @@ class Database:
             params.append(metric_name)
         query = f"SELECT * FROM health_metrics WHERE {' AND '.join(conditions)} ORDER BY timestamp DESC"
         return self._fetchall(query, tuple(params))
+
+    # === KEY-VALUE STORE (for settings, agent state, etc.) ===
+    # This is the proper way to store persistent data on Vercel —
+    # goes to PostgreSQL when DATABASE_URL is set, falls back to
+    # SQLite at /tmp/ when local dev.
+
+    def store_kv(self, namespace: str, key: str, value: str, metadata: str = None):
+        """Store a key-value pair in the persistent store."""
+        ph = "%s" if self.use_postgres else "?"
+        self._execute(
+            f"DELETE FROM kv_store WHERE namespace = {ph} AND key = {ph}",
+            (namespace, key)
+        )
+        self._execute(
+            f"INSERT INTO kv_store (namespace, key, value, metadata) VALUES ({ph}, {ph}, {ph}, {ph})",
+            (namespace, key, value, metadata)
+        )
+
+    def get_kv(self, namespace: str, key: str) -> Optional[str]:
+        """Get a value by namespace + key."""
+        ph = "%s" if self.use_postgres else "?"
+        row = self._fetchone(
+            f"SELECT value FROM kv_store WHERE namespace = {ph} AND key = {ph}",
+            (namespace, key)
+        )
+        return row["value"] if row else None
+
+    def get_all_kv(self, namespace: str) -> Dict[str, str]:
+        """Get all key-value pairs in a namespace."""
+        ph = "%s" if self.use_postgres else "?"
+        rows = self._fetchall(
+            f"SELECT key, value FROM kv_store WHERE namespace = {ph}",
+            (namespace,)
+        )
+        return {row["key"]: row["value"] for row in rows} if rows else {}
+
+    def delete_kv(self, namespace: str, key: str):
+        """Delete a key-value pair."""
+        ph = "%s" if self.use_postgres else "?"
+        self._execute(
+            f"DELETE FROM kv_store WHERE namespace = {ph} AND key = {ph}",
+            (namespace, key)
+        )
+
+    def store_json(self, namespace: str, key: str, obj: Any):
+        """Store a JSON-serializable object."""
+        self.store_kv(namespace, key, json.dumps(obj, default=str))
+
+    def get_json(self, namespace: str, key: str) -> Any:
+        """Get a JSON object. Returns None if not found."""
+        val = self.get_kv(namespace, key)
+        if val:
+            try:
+                return json.loads(val)
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return None
 
 
 # Singleton

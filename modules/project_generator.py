@@ -59,7 +59,11 @@ class ProjectGenerator:
 
     def __init__(self):
         self.projects_dir = os.path.join(config.DATA_DIR, "projects")
-        os.makedirs(self.projects_dir, exist_ok=True)
+        try:
+            os.makedirs(self.projects_dir, exist_ok=True)
+        except OSError:
+            self.projects_dir = '/tmp/iris-data/projects'
+            os.makedirs(self.projects_dir, exist_ok=True)
 
     def generate_project(self, project_name: str, template: str = "nextjs", description: str = "") -> Dict:
         if template not in self.TEMPLATES:

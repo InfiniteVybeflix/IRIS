@@ -57,24 +57,27 @@ class Config:
 
     # ─── Paths ───
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    # On Vercel/serverless, the filesystem is READ-ONLY except /tmp/.
-    # Vercel automatically sets VERCEL=1. When detected, redirect ALL data
-    # paths to /tmp/iris-data/ (writable, ephemeral — cleared on cold start).
-    # For persistent storage on Vercel, use DATABASE_URL (Supabase/PostgreSQL).
     _IS_VERCEL = os.environ.get("VERCEL") is not None
+
+    # PROPER ARCHITECTURE:
+    # - Persistent data → PostgreSQL (Supabase) when DATABASE_URL is set
+    # - Temp files (voice, sandbox, backups) → /tmp/ on serverless, data/ locally
+    # - DATA_DIR is ONLY used for local dev (SQLite + JSON files)
+    # - On Vercel: persistent goes to PostgreSQL, temp goes to TMP_DIR
     DATA_DIR = "/tmp/iris-data" if _IS_VERCEL else os.path.join(BASE_DIR, "data")
-    UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
+    TMP_DIR = "/tmp/iris-temp" if _IS_VERCEL else os.path.join(BASE_DIR, "data", "temp")
+    UPLOADS_DIR = os.path.join(TMP_DIR, "uploads")
     LEARNINGS_DIR = os.path.join(DATA_DIR, "iris_learnings")
     KNOWLEDGE_DIR = os.path.join(DATA_DIR, "iris_knowledge")
     SELF_DIR = os.path.join(DATA_DIR, "iris_self")
     VECTOR_DIR = os.path.join(DATA_DIR, "vector_db")
-    BACKUPS_DIR = os.path.join(DATA_DIR, "backups")
-    SANDBOX_DIR = os.path.join(DATA_DIR, "sandbox")
+    BACKUPS_DIR = os.path.join(TMP_DIR, "backups")
+    SANDBOX_DIR = os.path.join(TMP_DIR, "sandbox")
     CALENDAR_DIR = os.path.join(DATA_DIR, "calendar")
     NOTES_DIR = os.path.join(DATA_DIR, "notes")
-    PROJECTS_DIR = os.path.join(DATA_DIR, "projects")
-    AUDIO_DIR = os.path.join(DATA_DIR, "audio")
-    SCREENSHOTS_DIR = os.path.join(DATA_DIR, "screenshots")
+    PROJECTS_DIR = os.path.join(TMP_DIR, "projects")
+    AUDIO_DIR = os.path.join(TMP_DIR, "audio")
+    SCREENSHOTS_DIR = os.path.join(TMP_DIR, "screenshots")
 
     # ─── Agent Limits ───
     MAX_TOOL_ITERATIONS = int(os.getenv("MAX_TOOL_ITERATIONS", "25"))

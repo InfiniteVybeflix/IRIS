@@ -17,11 +17,29 @@ class ChromaMemory:
 
     def __init__(self):
         self.collection_name = "iris_memory"
-        self.persist_dir = os.path.join(config.DATA_DIR, "chroma_db")
-        os.makedirs(self.persist_dir, exist_ok=True)
         self.client = None
         self.collection = None
-        self._init_chroma()
+        # ChromaDB requires a local server process + persistent disk —
+        # can't work on Vercel serverless. Skip gracefully and use
+        # PostgreSQL (via core/db) for vector storage when available.
+        self._use_postgres = False
+        try:
+            from core.db import db
+            if db._db_available and db.use_postgres:
+                self._use_postgres = True
+                logger.info("ChromaMemory: using PostgreSQL (no ChromaDB server needed)")
+        except Exception:
+            pass
+
+        if not self._use_postgres and not os.environ.get("VERCEL"):
+            # Local dev — try ChromaDB
+            self.persist_dir = os.path.join(config.DATA_DIR, "chroma_db")
+            try:
+                os.makedirs(self.persist_dir, exist_ok=True)
+                self._init_chroma()
+            except Exception as e:
+                logger.warning(f"ChromaDB init failed: {e}. Using in-memory fallback.")
+                self.persist_dir = None
 
     def _init_chroma(self):
         """Initialize ChromaDB client"""

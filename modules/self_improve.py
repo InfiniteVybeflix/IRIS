@@ -16,8 +16,14 @@ class SelfImprovementEngine:
     def __init__(self):
         self.backup_dir = os.path.join(config.DATA_DIR, "backups")
         self.sandbox_dir = os.path.join(config.DATA_DIR, "sandbox")
-        os.makedirs(self.backup_dir, exist_ok=True)
-        os.makedirs(self.sandbox_dir, exist_ok=True)
+        try:
+            os.makedirs(self.backup_dir, exist_ok=True)
+            os.makedirs(self.sandbox_dir, exist_ok=True)
+        except OSError:
+            self.backup_dir = '/tmp/iris-data/backups'
+            self.sandbox_dir = '/tmp/iris-data/sandbox'
+            os.makedirs(self.backup_dir, exist_ok=True)
+            os.makedirs(self.sandbox_dir, exist_ok=True)
         self.change_log = []
 
     def analyze_self(self) -> Dict:

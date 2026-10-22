@@ -20,6 +20,8 @@ from .base_agent import Task, TaskPriority, TaskResult
 
 
 @dataclass(order=True)
+
+
 class QueuedTask:
     """
     Internal wrapper for tasks in the priority queue.
@@ -67,17 +69,31 @@ class TaskQueue:
             handler.setFormatter(formatter)
             self._logger.addHandler(handler)
 
-        if persistence_path is None:
+        # Check if PostgreSQL is available for persistent storage
+        self._use_postgres = False
+        try:
+            from core.db import db
+            if db._db_available and db.use_postgres:
+                self._use_postgres = True
+                self._db = db
+                self._logger.info("[TaskQueue] Using PostgreSQL for persistence")
+        except Exception:
+            pass
+
+        if not self._use_postgres:
+            if persistence_path is None:
+                try:
+                    from config import config
+                    default_dir = os.path.join(config.TMP_DIR, "agents")
+                    os.makedirs(default_dir, exist_ok=True)
+                    persistence_path = os.path.join(default_dir, "task_queue.json")
+                except Exception:
+                    persistence_path = os.path.join("/tmp", "iris-task_queue.json")
+            self._persistence_path = persistence_path
             try:
-                from config import config
-                default_dir = os.path.join(config.DATA_DIR, "agents")
-                os.makedirs(default_dir, exist_ok=True)
-                persistence_path = os.path.join(default_dir, "task_queue.json")
+                Path(self._persistence_path).parent.mkdir(parents=True, exist_ok=True)
             except Exception:
-                persistence_path = os.path.join(os.getcwd(), "data", "agents", "task_queue.json")
-                os.makedirs(os.path.dirname(persistence_path), exist_ok=True)
-        self._persistence_path = persistence_path
-        Path(self._persistence_path).parent.mkdir(parents=True, exist_ok=True)
+                pass
 
         self._logger.info("[TaskQueue] Mission control initialized.")
 
@@ -398,12 +414,7 @@ class TaskQueue:
             }
 
     def persist(self) -> bool:
-        """
-        Save queue state to disk.
-
-        Returns:
-            bool: True if persistence succeeded.
-        """
+        """Save queue state — PostgreSQL if available, JSON file otherwise."""
         try:
             with self._lock:
                 data = {
@@ -412,30 +423,30 @@ class TaskQueue:
                     "persisted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 }
 
-            with open(self._persistence_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, default=str)
+            if self._use_postgres:
+                self._db.store_json("task_queue", "state", data)
+            else:
+                with open(self._persistence_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, default=str)
 
-            self._logger.info(f"[TaskQueue] State persisted to {self._persistence_path}")
             return True
-
         except Exception as e:
             self._logger.error(f"[TaskQueue] Persistence failed: {e}")
             return False
 
     def load(self) -> bool:
-        """
-        Load queue state from disk.
-
-        Returns:
-            bool: True if load succeeded.
-        """
+        """Load queue state — PostgreSQL if available, JSON file otherwise."""
         try:
-            if not os.path.exists(self._persistence_path):
-                self._logger.info("[TaskQueue] No persistence file found. Starting fresh.")
-                return False
+            if self._use_postgres:
+                data = self._db.get_json("task_queue", "state")
+            else:
+                if not os.path.exists(self._persistence_path):
+                    return False
+                with open(self._persistence_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
 
-            with open(self._persistence_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            if not data:
+                return False
 
             with self._lock:
                 self._queue = []
