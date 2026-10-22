@@ -84,8 +84,7 @@ class LearningEngine(BaseMemory):
     def _create_learning_tables(self) -> None:
         """Create learning engine tables."""
         with self._lock:
-            if self._conn:
-                self._conn.execute(
+                self._execute_sql(
                     """
                     CREATE TABLE IF NOT EXISTS beliefs (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,8 +95,7 @@ class LearningEngine(BaseMemory):
                     )
                     """
                 )
-                self._conn.commit()
-
+                
     # ------------------------------------------------------------------
     # Core interface
     # ------------------------------------------------------------------
@@ -111,7 +109,7 @@ class LearningEngine(BaseMemory):
         """Retrieve belief probability by key."""
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 row = self._sql_execute_one("SELECT * FROM beliefs WHERE belief_key = ?", (key,))
                 if row:
                     data = {"belief_key": row[1], "probability": row[2], "evidence_count": row[3], "updated_at": row[4]}
@@ -129,7 +127,7 @@ class LearningEngine(BaseMemory):
         start = time.perf_counter()
         try:
             results = []
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 rows = self._sql_execute(
                     "SELECT * FROM beliefs WHERE belief_key LIKE ? LIMIT ?",
                     (f"%{query}%", limit),
@@ -155,7 +153,7 @@ class LearningEngine(BaseMemory):
         """Delete a belief."""
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute("DELETE FROM beliefs WHERE belief_key = ?", (key,))
             else:
                 self._json_delete(key)
@@ -169,7 +167,7 @@ class LearningEngine(BaseMemory):
         start = time.perf_counter()
         try:
             results = []
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 rows = self._sql_execute("SELECT * FROM beliefs ORDER BY updated_at DESC", ())
                 for row in rows:
                     results.append({"belief_key": row[1], "probability": row[2], "evidence_count": row[3], "updated_at": row[4]})
@@ -459,7 +457,7 @@ class LearningEngine(BaseMemory):
                 new_prob = (prior * count + observed_prob) / (count + 1)
                 new_count = count + 1
 
-                if self.use_sqlite:
+                if self._use_postgres or self.use_sqlite:
                     self._sql_execute(
                         """
                         INSERT OR REPLACE INTO beliefs

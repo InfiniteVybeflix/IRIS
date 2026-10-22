@@ -94,8 +94,7 @@ class SemanticSearch(BaseMemory):
     def _create_semantic_tables(self) -> None:
         """Create semantic search tables."""
         with self._lock:
-            if self._conn:
-                self._conn.execute(
+                self._execute_sql(
                     """
                     CREATE TABLE IF NOT EXISTS embeddings (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,11 +106,10 @@ class SemanticSearch(BaseMemory):
                     )
                     """
                 )
-                self._conn.execute(
+                self._execute_sql(
                     "CREATE INDEX IF NOT EXISTS idx_doc_id ON embeddings(doc_id)"
                 )
-                self._conn.commit()
-
+                
     # ------------------------------------------------------------------
     # Core interface
     # ------------------------------------------------------------------
@@ -125,7 +123,7 @@ class SemanticSearch(BaseMemory):
         """Retrieve a document by doc_id."""
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 row = self._sql_execute_one("SELECT * FROM embeddings WHERE doc_id = ?", (key,))
                 if row:
                     data = {
@@ -154,7 +152,7 @@ class SemanticSearch(BaseMemory):
             if not isinstance(value, str):
                 return self._result(False, "update", errors=["Value must be text string"])
             vector = json.dumps(self.embed(value)) if self._use_transformers else None
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute(
                     "UPDATE embeddings SET text = ?, vector = ? WHERE doc_id = ?",
                     (value, vector, key),
@@ -174,7 +172,7 @@ class SemanticSearch(BaseMemory):
         """Delete a document by doc_id."""
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute("DELETE FROM embeddings WHERE doc_id = ?", (key,))
             else:
                 self._json_delete(key)
@@ -191,7 +189,7 @@ class SemanticSearch(BaseMemory):
         start = time.perf_counter()
         try:
             results = []
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 sql = "SELECT * FROM embeddings"
                 params = []
                 if filter_:
@@ -293,7 +291,7 @@ class SemanticSearch(BaseMemory):
             vector_json = json.dumps(vector)
             metadata_json = json.dumps(metadata or {}, default=str)
 
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute(
                     """
                     INSERT OR REPLACE INTO embeddings
@@ -333,7 +331,7 @@ class SemanticSearch(BaseMemory):
             query_vec = self.embed(query)
             results = []
 
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 rows = self._sql_execute("SELECT doc_id, text, vector, metadata FROM embeddings", ())
                 for row in rows:
                     doc_vec = json.loads(row[2]) if row[2] else []
@@ -382,7 +380,7 @@ class SemanticSearch(BaseMemory):
             query_vec = self.embed(query)
             results = []
 
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 rows = self._sql_execute("SELECT doc_id, text, vector, metadata FROM embeddings", ())
                 for row in rows:
                     text = row[1]
@@ -445,7 +443,7 @@ class SemanticSearch(BaseMemory):
                 metadata = doc.get("metadata", {})
                 vector = self.embed(text)
                 vector_json = json.dumps(vector)
-                if self.use_sqlite:
+                if self._use_postgres or self.use_sqlite:
                     self._sql_execute(
                         "UPDATE embeddings SET vector = ? WHERE doc_id = ?",
                         (vector_json, doc_id),

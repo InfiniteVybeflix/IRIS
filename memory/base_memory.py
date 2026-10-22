@@ -67,6 +67,14 @@ class BaseMemory(IRISConnectable, ABC):
             self._conn: Optional[sqlite3.Connection] = None
             self._init_storage()
             logger.info(f"BaseMemory [{module_name}]: using SQLite at {self.db_path}")
+        else:
+            # PostgreSQL — set the attributes subclasses expect to None
+            # so they don't crash with AttributeError. Subclass methods
+            # that check `if self._conn:` will skip the SQLite path and
+            # fall through to the PostgreSQL path via _execute_sql().
+            self.db_path = "postgresql"
+            self.use_sqlite = False
+            self._conn = None
 
         self.status = "ready"
 
@@ -100,6 +108,57 @@ class BaseMemory(IRISConnectable, ABC):
                 )"""
             )
             self._conn.commit()
+
+    # ------------------------------------------------------------------
+    # SQL abstraction layer — subclasses use these instead of self._conn
+    # Routes to PostgreSQL (persistent) or SQLite (local dev) automatically.
+    # ------------------------------------------------------------------
+
+    def _execute_sql(self, query: str, params: tuple = ()) -> Optional[Any]:
+        """Execute SQL — PostgreSQL or SQLite depending on backend.
+
+        Handles ? → %s placeholder conversion for PostgreSQL.
+        Subclasses should use this instead of self._conn.execute().
+        """
+        try:
+            if self._use_postgres:
+                query = query.replace("?", "%s")
+                return self._db._execute(query, params)
+            elif self._conn:
+                cursor = self._conn.execute(query, params)
+                self._conn.commit()
+                return cursor
+        except Exception as e:
+            logger.debug(f"[{self.module_name}] _execute_sql failed: {e}")
+        return None
+
+    def _fetchall_sql(self, query: str, params: tuple = ()) -> List[Dict]:
+        """Fetch all rows — PostgreSQL or SQLite."""
+        try:
+            if self._use_postgres:
+                query = query.replace("?", "%s")
+                return self._db._fetchall(query, params) or []
+            elif self._conn:
+                cursor = self._conn.execute(query, params)
+                rows = cursor.fetchall()
+                return [dict(row) for row in rows] if rows else []
+        except Exception as e:
+            logger.debug(f"[{self.module_name}] _fetchall_sql failed: {e}")
+        return []
+
+    def _fetchone_sql(self, query: str, params: tuple = ()) -> Optional[Dict]:
+        """Fetch one row — PostgreSQL or SQLite."""
+        try:
+            if self._use_postgres:
+                query = query.replace("?", "%s")
+                return self._db._fetchone(query, params)
+            elif self._conn:
+                cursor = self._conn.execute(query, params)
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.debug(f"[{self.module_name}] _fetchone_sql failed: {e}")
+        return None
 
     # ------------------------------------------------------------------
     # Storage operations — abstract interface that works with both

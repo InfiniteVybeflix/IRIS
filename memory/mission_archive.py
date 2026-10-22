@@ -73,8 +73,7 @@ class MissionArchive(BaseMemory):
     def _create_mission_tables(self) -> None:
         """Create mission archive tables."""
         with self._lock:
-            if self._conn:
-                self._conn.execute(
+                self._execute_sql(
                     """
                     CREATE TABLE IF NOT EXISTS missions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,14 +89,13 @@ class MissionArchive(BaseMemory):
                     )
                     """
                 )
-                self._conn.execute(
+                self._execute_sql(
                     "CREATE INDEX IF NOT EXISTS idx_mission_type ON missions(mission_type)"
                 )
-                self._conn.execute(
+                self._execute_sql(
                     "CREATE INDEX IF NOT EXISTS idx_agent ON missions(agent_name)"
                 )
-                self._conn.commit()
-
+                
     # ------------------------------------------------------------------
     # Core interface
     # ------------------------------------------------------------------
@@ -116,7 +114,7 @@ class MissionArchive(BaseMemory):
         start = time.perf_counter()
         try:
             results = []
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 rows = self._sql_execute(
                     """
                     SELECT * FROM missions
@@ -143,7 +141,7 @@ class MissionArchive(BaseMemory):
         """Update mission outcomes by mission_id."""
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute(
                     "UPDATE missions SET outcomes = ? WHERE mission_id = ?",
                     (json.dumps(value, default=str), key),
@@ -163,7 +161,7 @@ class MissionArchive(BaseMemory):
         """Delete a mission by mission_id."""
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute("DELETE FROM missions WHERE mission_id = ?", (key,))
             else:
                 self._json_delete(key)
@@ -177,7 +175,7 @@ class MissionArchive(BaseMemory):
         start = time.perf_counter()
         try:
             results = []
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 sql = "SELECT * FROM missions"
                 params = []
                 conditions = []
@@ -248,7 +246,7 @@ class MissionArchive(BaseMemory):
             timeline = json.dumps(mission.get("timeline", []), default=str)
             metadata = json.dumps(mission.get("metadata", {}), default=str)
 
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute(
                     """
                     INSERT OR REPLACE INTO missions
@@ -289,7 +287,7 @@ class MissionArchive(BaseMemory):
         """
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 row = self._sql_execute_one("SELECT * FROM missions WHERE mission_id = ?", (mission_id,))
                 if row:
                     data = self._row_to_dict(row)
@@ -323,7 +321,7 @@ class MissionArchive(BaseMemory):
         start = time.perf_counter()
         try:
             results = []
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 sql = """
                     SELECT * FROM missions
                     WHERE (description LIKE ? OR mission_type LIKE ? OR agent_name LIKE ?)

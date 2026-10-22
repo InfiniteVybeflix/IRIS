@@ -73,8 +73,7 @@ class KnowledgeGraph(BaseMemory):
     def _create_kg_tables(self) -> None:
         """Create knowledge graph tables."""
         with self._lock:
-            if self._conn:
-                self._conn.execute(
+                self._execute_sql(
                     """
                     CREATE TABLE IF NOT EXISTS facts (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,17 +87,16 @@ class KnowledgeGraph(BaseMemory):
                     )
                     """
                 )
-                self._conn.execute(
+                self._execute_sql(
                     "CREATE INDEX IF NOT EXISTS idx_spo ON facts(subject, predicate, object)"
                 )
-                self._conn.execute(
+                self._execute_sql(
                     "CREATE INDEX IF NOT EXISTS idx_subject ON facts(subject)"
                 )
-                self._conn.execute(
+                self._execute_sql(
                     "CREATE INDEX IF NOT EXISTS idx_object ON facts(object)"
                 )
-                self._conn.commit()
-
+                
     # ------------------------------------------------------------------
     # Core interface
     # ------------------------------------------------------------------
@@ -118,7 +116,7 @@ class KnowledgeGraph(BaseMemory):
         """Retrieve a fact by fact_id."""
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 row = self._sql_execute_one("SELECT * FROM facts WHERE fact_id = ?", (key,))
                 if row:
                     data = {
@@ -140,7 +138,7 @@ class KnowledgeGraph(BaseMemory):
         start = time.perf_counter()
         try:
             results = []
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 rows = self._sql_execute(
                     """
                     SELECT * FROM facts
@@ -173,7 +171,7 @@ class KnowledgeGraph(BaseMemory):
         try:
             if isinstance(value, dict):
                 confidence = value.get("confidence", 1.0)
-                if self.use_sqlite:
+                if self._use_postgres or self.use_sqlite:
                     self._sql_execute(
                         "UPDATE facts SET confidence = ? WHERE fact_id = ?",
                         (confidence, key),
@@ -193,7 +191,7 @@ class KnowledgeGraph(BaseMemory):
         """Delete a fact by fact_id."""
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute("DELETE FROM facts WHERE fact_id = ?", (key,))
             else:
                 self._json_delete(key)
@@ -207,7 +205,7 @@ class KnowledgeGraph(BaseMemory):
         start = time.perf_counter()
         try:
             results = []
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 sql = "SELECT * FROM facts"
                 params = []
                 conditions = []
@@ -269,7 +267,7 @@ class KnowledgeGraph(BaseMemory):
         start = time.perf_counter()
         try:
             fact_id = f"fact_{subject}_{predicate}_{object}_{int(time.time() * 1000)}"
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute(
                     """
                     INSERT OR REPLACE INTO facts
@@ -316,7 +314,7 @@ class KnowledgeGraph(BaseMemory):
         start = time.perf_counter()
         try:
             results = []
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 conditions = []
                 params = []
                 if subject:
@@ -537,7 +535,7 @@ class KnowledgeGraph(BaseMemory):
         """
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 rows = self._sql_execute(
                     """
                     SELECT subject, predicate, object, COUNT(*) as cnt

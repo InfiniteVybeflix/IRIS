@@ -70,8 +70,7 @@ class AgentMemory(BaseMemory):
     def _create_agent_tables(self) -> None:
         """Create agent-specific tables."""
         with self._lock:
-            if self._conn:
-                self._conn.execute(
+                self._execute_sql(
                     """
                     CREATE TABLE IF NOT EXISTS agent_missions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,13 +83,12 @@ class AgentMemory(BaseMemory):
                     )
                     """
                 )
-                self._conn.execute(
+                self._execute_sql(
                     """
                     CREATE INDEX IF NOT EXISTS idx_agent ON agent_missions(agent_name)
                     """
                 )
-                self._conn.commit()
-
+                
     # ------------------------------------------------------------------
     # Core interface implementations
     # ------------------------------------------------------------------
@@ -102,7 +100,7 @@ class AgentMemory(BaseMemory):
         """Retrieve a mission by mission_id."""
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 row = self._sql_execute_one(
                     "SELECT * FROM agent_missions WHERE mission_id = ?", (key,)
                 )
@@ -132,7 +130,7 @@ class AgentMemory(BaseMemory):
         start = time.perf_counter()
         try:
             results = []
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 rows = self._sql_execute(
                     """
                     SELECT * FROM agent_missions
@@ -167,7 +165,7 @@ class AgentMemory(BaseMemory):
         """Update a mission's outcomes."""
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute(
                     "UPDATE agent_missions SET outcomes = ? WHERE mission_id = ?",
                     (json.dumps(value), key),
@@ -187,7 +185,7 @@ class AgentMemory(BaseMemory):
         """Delete a mission by mission_id."""
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute("DELETE FROM agent_missions WHERE mission_id = ?", (key,))
             else:
                 self._json_delete(key)
@@ -201,7 +199,7 @@ class AgentMemory(BaseMemory):
         start = time.perf_counter()
         try:
             results = []
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 sql = "SELECT * FROM agent_missions"
                 params = []
                 conditions = []
@@ -270,7 +268,7 @@ class AgentMemory(BaseMemory):
         try:
             tasks_json = json.dumps(tasks, default=str)
             outcomes_json = json.dumps(outcomes, default=str)
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute(
                     """
                     INSERT OR REPLACE INTO agent_missions
@@ -317,7 +315,7 @@ class AgentMemory(BaseMemory):
         """
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 rows = self._sql_execute(
                     """
                     SELECT * FROM agent_missions

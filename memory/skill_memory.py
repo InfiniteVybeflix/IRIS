@@ -73,8 +73,7 @@ class SkillMemory(BaseMemory):
     def _create_skill_tables(self) -> None:
         """Create technique tracking tables."""
         with self._lock:
-            if self._conn:
-                self._conn.execute(
+                self._execute_sql(
                     """
                     CREATE TABLE IF NOT EXISTS techniques (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,14 +87,13 @@ class SkillMemory(BaseMemory):
                     )
                     """
                 )
-                self._conn.execute(
+                self._execute_sql(
                     "CREATE INDEX IF NOT EXISTS idx_tech_task ON techniques(technique, task_type)"
                 )
-                self._conn.execute(
+                self._execute_sql(
                     "CREATE INDEX IF NOT EXISTS idx_agent_tech ON techniques(agent_name, technique)"
                 )
-                self._conn.commit()
-
+                
     # ------------------------------------------------------------------
     # Core interface
     # ------------------------------------------------------------------
@@ -121,7 +119,7 @@ class SkillMemory(BaseMemory):
         start = time.perf_counter()
         try:
             results = []
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 rows = self._sql_execute(
                     """
                     SELECT * FROM techniques
@@ -153,7 +151,7 @@ class SkillMemory(BaseMemory):
         """Update technique success status by id."""
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute(
                     "UPDATE techniques SET success = ? WHERE id = ?",
                     (1 if value else 0, key),
@@ -173,7 +171,7 @@ class SkillMemory(BaseMemory):
         """Delete a technique record by id."""
         start = time.perf_counter()
         try:
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute("DELETE FROM techniques WHERE id = ?", (key,))
             else:
                 self._json_delete(key)
@@ -187,7 +185,7 @@ class SkillMemory(BaseMemory):
         start = time.perf_counter()
         try:
             results = []
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 sql = "SELECT * FROM techniques"
                 params = []
                 conditions = []
@@ -252,7 +250,7 @@ class SkillMemory(BaseMemory):
         start = time.perf_counter()
         try:
             context_json = json.dumps(context or {}, default=str)
-            if self.use_sqlite:
+            if self._use_postgres or self.use_sqlite:
                 self._sql_execute(
                     """
                     INSERT INTO techniques
