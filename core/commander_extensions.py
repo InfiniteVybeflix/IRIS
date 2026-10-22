@@ -9,8 +9,8 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 
-from base_agent import BaseAgent, Task, TaskPriority, TaskResult
-from commander import Commander, MissionPlan, UnifiedReport
+from .base_agent import BaseAgent, Task, TaskPriority, TaskResult
+from .commander import Commander, MissionPlan, UnifiedReport
 
 
 @dataclass

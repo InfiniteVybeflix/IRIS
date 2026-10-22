@@ -448,6 +448,197 @@ CAPABILITY_MANIFEST = {
         "description": "Price comparison, shopping lists, deals",
         "methods": ["create_list", "add_item", "compare_prices", "get_list"],
     },
+    # ─── Autonomous capabilities (Hermes-style) ────────────────────────────
+    "git_clone": {
+        "category": "productivity",
+        "skill": "autonomous_tools",
+        "description": "Clone a git repository to a local path",
+        "methods": ["clone"],
+    },
+    "git_read_file": {
+        "category": "productivity",
+        "skill": "autonomous_tools",
+        "description": "Read a file from a cloned repository",
+        "methods": ["read"],
+    },
+    "git_edit_file": {
+        "category": "productivity",
+        "skill": "autonomous_tools",
+        "description": "Edit a file in a cloned repository (string replace)",
+        "methods": ["edit"],
+    },
+    "git_push": {
+        "category": "productivity",
+        "skill": "autonomous_tools",
+        "description": "Commit and push changes to a git remote",
+        "methods": ["commit", "push"],
+    },
+    "git_create_repo": {
+        "category": "productivity",
+        "skill": "autonomous_tools",
+        "description": "Create a new GitHub repository via PyGithub",
+        "methods": ["create"],
+    },
+    "execute_shell": {
+        "category": "productivity",
+        "skill": "autonomous_tools",
+        "description": "Execute a shell command (sandboxed, blocklisted commands refused)",
+        "methods": ["run", "run_with_timeout"],
+    },
+    "execute_python": {
+        "category": "productivity",
+        "skill": "autonomous_tools",
+        "description": "Execute Python code in a sandboxed subprocess",
+        "methods": ["run", "run_with_builtins_restricted"],
+    },
+    "edit_own_code": {
+        "category": "orchestration",
+        "skill": "autonomous_tools",
+        "description": "Edit IRIS's own source code (backed up + syntax-verified first)",
+        "methods": ["edit", "verify"],
+    },
+    "vercel_deploy": {
+        "category": "productivity",
+        "skill": "autonomous_tools",
+        "description": "Deploy a project to Vercel via the Vercel CLI",
+        "methods": ["deploy"],
+    },
+    "read_file": {
+        "category": "productivity",
+        "skill": "autonomous_tools",
+        "description": "Read any file from disk",
+        "methods": ["read"],
+    },
+    "write_file": {
+        "category": "productivity",
+        "skill": "autonomous_tools",
+        "description": "Write content to any file on disk",
+        "methods": ["write", "append"],
+    },
+    "list_directory": {
+        "category": "productivity",
+        "skill": "autonomous_tools",
+        "description": "List directory contents",
+        "methods": ["list"],
+    },
+    "browse_url": {
+        "category": "intelligence",
+        "skill": "autonomous_tools",
+        "description": "Fetch URL content as text (strips scripts/styles)",
+        "methods": ["fetch", "extract_text"],
+    },
+    # ─── Self-healing autonomous loop ──────────────────────────────────────
+    "autonomous_build": {
+        "category": "orchestration",
+        "skill": "autonomous_tools",
+        "description": "Self-healing multi-step task: plan → execute → verify → investigate on fail → fix → retry (up to MAX_RETRIES)",
+        "methods": ["run_task"],
+    },
+    # ─── Device control (ClosePaw/Hermes-style) ────────────────────────────
+    "screen_capture": {
+        "category": "media",
+        "skill": "device_control",
+        "description": "Capture a screenshot of the current screen",
+        "methods": ["capture"],
+    },
+    "webcam_capture": {
+        "category": "media",
+        "skill": "device_control",
+        "description": "Capture a single frame from the webcam",
+        "methods": ["capture"],
+    },
+    "send_sms": {
+        "category": "communication",
+        "skill": "device_control",
+        "description": "Send an SMS via ADB-connected Android phone",
+        "methods": ["send"],
+    },
+    "get_contacts": {
+        "category": "communication",
+        "skill": "device_control",
+        "description": "List phone contacts via ADB",
+        "methods": ["list"],
+    },
+    "take_photo": {
+        "category": "media",
+        "skill": "device_control",
+        "description": "Take a photo with the phone's camera via ADB",
+        "methods": ["capture"],
+    },
+    # ─── GitHub integration ────────────────────────────────────────────────
+    "github_create_issue": {
+        "category": "productivity",
+        "skill": "github_integration",
+        "description": "Create a GitHub issue in a repository",
+        "methods": ["create"],
+    },
+    "github_list_issues": {
+        "category": "productivity",
+        "skill": "github_integration",
+        "description": "List open issues in a GitHub repository",
+        "methods": ["list"],
+    },
+    "github_create_pr": {
+        "category": "productivity",
+        "skill": "github_integration",
+        "description": "Create a pull request in a GitHub repository",
+        "methods": ["create"],
+    },
+    "github_create_release": {
+        "category": "productivity",
+        "skill": "github_integration",
+        "description": "Create a new release (tag) in a GitHub repository",
+        "methods": ["create"],
+    },
+    "github_list_repos": {
+        "category": "productivity",
+        "skill": "github_integration",
+        "description": "List repositories for the authenticated GitHub user",
+        "methods": ["list"],
+    },
+    # ─── Inbuilt apps ──────────────────────────────────────────────────────
+    "calendar_create_event": {
+        "category": "personal_productivity",
+        "skill": "inbuilt_apps",
+        "description": "Create a calendar event (title, start, end, location)",
+        "methods": ["create"],
+    },
+    "calendar_list_events": {
+        "category": "personal_productivity",
+        "skill": "inbuilt_apps",
+        "description": "List upcoming calendar events",
+        "methods": ["list"],
+    },
+    "calculator_compute": {
+        "category": "utilities",
+        "skill": "inbuilt_apps",
+        "description": "Evaluate a math expression safely (no exec/eval of arbitrary code)",
+        "methods": ["compute"],
+    },
+    "maps_geocode": {
+        "category": "utilities",
+        "skill": "inbuilt_apps",
+        "description": "Convert an address to lat/lon via OpenStreetMap Nominatim",
+        "methods": ["geocode"],
+    },
+    "maps_search": {
+        "category": "utilities",
+        "skill": "inbuilt_apps",
+        "description": "Search for places near a location via OpenStreetMap Overpass API",
+        "methods": ["search"],
+    },
+    "file_explorer_list": {
+        "category": "utilities",
+        "skill": "inbuilt_apps",
+        "description": "List directory contents with size/type/mtime (alias of list_directory with richer metadata)",
+        "methods": ["list"],
+    },
+    "file_explorer_search": {
+        "category": "utilities",
+        "skill": "inbuilt_apps",
+        "description": "Search for files by name pattern (recursive)",
+        "methods": ["search"],
+    },
 }
 
 

@@ -22,7 +22,7 @@ tests = [
     ("core.predictive_engine", "predictive_engine"),
     ("core.db", "db"),
     ("core.aevibron_client", "aevibron"),
-    ("agents.base_agent", "BaseAgent"),
+    ("core.base_agent", "BaseAgent"),
     ("agents.swarm_coordinator", "swarm_coordinator"),
     ("modules.consciousness", "consciousness"),
     ("modules.security", "security_manager"),

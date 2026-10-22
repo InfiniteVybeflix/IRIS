@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Type
 
-from base_agent import BaseAgent, AgentStatus
+from .base_agent import BaseAgent, AgentStatus
 
 
 class AgentRegistry:

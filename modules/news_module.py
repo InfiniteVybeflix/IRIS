@@ -70,8 +70,7 @@ class NewsModule:
         lines = [f"Here are the latest {category} headlines:"]
         for i, article in enumerate(result["articles"], 1):
             lines.append(f"{i}. {article['title']} — {article['source']}")
-        return "
-".join(lines)
+        return "\n".join(lines)
 
 # Singleton
 news_module = NewsModule()

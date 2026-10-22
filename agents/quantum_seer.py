@@ -126,33 +126,27 @@ class QuantumSeer:
                         continue
                     # Detect RSA
                     for match in re.finditer(r"RSA[_-]?(?:generate|private|public|key|encrypt|decrypt|sign|verify)", content, re.IGNORECASE):
-                        line = content[:match.start()].count("
-") + 1
+                        line = content[:match.start()].count("\n") + 1
                         findings.append({"file": filepath, "line": line, "algorithm": "RSA", "risk": "quantum-vulnerable", "action": "Migrate to ML-DSA"})
                     # Detect ECC
                     for match in re.finditer(r"(?:EC|Elliptic|secp|curve25519|ed25519|ECDSA|ECDH)", content, re.IGNORECASE):
-                        line = content[:match.start()].count("
-") + 1
+                        line = content[:match.start()].count("\n") + 1
                         findings.append({"file": filepath, "line": line, "algorithm": "ECC", "risk": "quantum-vulnerable", "action": "Migrate to ML-DSA or hybrid"})
                     # Detect AES (symmetric, not quantum-vulnerable at same scale)
                     for match in re.finditer(r"AES[_-]?(?:encrypt|decrypt|GCM|CBC|CTR)", content, re.IGNORECASE):
-                        line = content[:match.start()].count("
-") + 1
+                        line = content[:match.start()].count("\n") + 1
                         findings.append({"file": filepath, "line": line, "algorithm": "AES", "risk": "needs-256-bit", "action": "Ensure AES-256 for quantum margin"})
                     # Detect DH
                     for match in re.finditer(r"DiffieHellman|DH[_-]?generate|createDH", content, re.IGNORECASE):
-                        line = content[:match.start()].count("
-") + 1
+                        line = content[:match.start()].count("\n") + 1
                         findings.append({"file": filepath, "line": line, "algorithm": "DH/ECDH", "risk": "quantum-vulnerable", "action": "Replace with ML-KEM"})
                     # Detect DSA
                     for match in re.finditer(r"DSA|createSign.*dsa", content, re.IGNORECASE):
-                        line = content[:match.start()].count("
-") + 1
+                        line = content[:match.start()].count("\n") + 1
                         findings.append({"file": filepath, "line": line, "algorithm": "DSA", "risk": "quantum-vulnerable", "action": "Replace with ML-DSA"})
                     # Detect SHA-1/MD5
                     for match in re.finditer(r"sha1|md5", content, re.IGNORECASE):
-                        line = content[:match.start()].count("
-") + 1
+                        line = content[:match.start()].count("\n") + 1
                         findings.append({"file": filepath, "line": line, "algorithm": "Weak Hash", "risk": "broken-classical", "action": "Use SHA-3 or SHA-256+"})
         summary = {
             "source_dir": source_dir,

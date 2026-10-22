@@ -16,7 +16,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from base_agent import Task, TaskPriority, TaskResult
+from .base_agent import Task, TaskPriority, TaskResult
 
 
 @dataclass(order=True)
@@ -67,7 +67,16 @@ class TaskQueue:
             handler.setFormatter(formatter)
             self._logger.addHandler(handler)
 
-        self._persistence_path = persistence_path or "/mnt/agents/output/agents/data/task_queue.json"
+        if persistence_path is None:
+            try:
+                from config import config
+                default_dir = os.path.join(config.DATA_DIR, "agents")
+                os.makedirs(default_dir, exist_ok=True)
+                persistence_path = os.path.join(default_dir, "task_queue.json")
+            except Exception:
+                persistence_path = os.path.join(os.getcwd(), "data", "agents", "task_queue.json")
+                os.makedirs(os.path.dirname(persistence_path), exist_ok=True)
+        self._persistence_path = persistence_path
         Path(self._persistence_path).parent.mkdir(parents=True, exist_ok=True)
 
         self._logger.info("[TaskQueue] Mission control initialized.")

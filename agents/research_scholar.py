@@ -159,7 +159,7 @@ class ResearchScholar:
                     with urllib.request.urlopen(req, timeout=15) as resp:
                         html = resp.read().decode("utf-8", errors="replace")
                     snippets = []
-                    for m in __import__("re").findall(r"<a class="result__snippet"[^>]*>(.*?)</a>", html):
+                    for m in __import__("re").findall(r'''<a class="result__snippet"[^>]*>(.*?)</a>''', html):
                         snippets.append(__import__("re").sub(r"<[^>]+>", "", m))
                     matrix[tech][crit] = "; ".join(snippets[:3]) if snippets else "No data"
                 except Exception as e:
@@ -213,7 +213,7 @@ main();
                 html = resp.read().decode("utf-8", errors="replace")
             import re
             patents = []
-            for m in re.finditer(r'"title":"([^"]+)"', html):
+            for m in re.finditer(r'''"title":"([^"]+)"''', html):
                 patents.append({"title": m.group(1)})
                 if len(patents) >= max_results:
                     break

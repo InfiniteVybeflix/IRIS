@@ -27,7 +27,7 @@ except ImportError:
     sys.exit(1)
 
 from core.bootstrap import bootstrap_all, shutdown
-from base_agent import Task, TaskPriority
+from .base_agent import Task, TaskPriority
 
 
 # Pydantic models

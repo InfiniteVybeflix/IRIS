@@ -160,3 +160,6 @@ class ImageGenerationClient:
 
 # Singleton
 image_generation = ImageGenerationClient()
+
+# Backwards-compat alias
+ImageGeneration = ImageGenerationClient

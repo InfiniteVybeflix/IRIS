@@ -1,17 +1,23 @@
 {
   "version": 2,
   "builds": [
-    {"src": "app.py", "use": "@vercel/python"}
+    {
+      "src": "app.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "50mb",
+        "runtime": "python3.12"
+      }
+    }
   ],
   "routes": [
-    {"src": "/static/(.*)", "dest": "/static/$1"},
-    {"src": "/(.*)", "dest": "app.py"}
+    {
+      "src": "/(.*)",
+      "dest": "app.py"
+    }
   ],
   "env": {
-    "FLASK_ENV": "production",
-    "PYTHONPATH": "."
-  },
-  "functions": {
-    "app.py": {"maxDuration": 60}
+    "PYTHONPATH": "/var/task",
+    "PORT": "5000"
   }
 }

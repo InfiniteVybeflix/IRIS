@@ -155,10 +155,15 @@ class BaseTool(IRISConnectable, abc.ABC):
             self._end_execution(success=False)
             return result
 
-    @abc.abstractmethod
     def _run(self, *args: Any, **kwargs: Any) -> Any:
-        """Concrete tool logic. Subclasses MUST implement this."""
-        raise NotImplementedError
+        """Concrete tool logic. Subclasses SHOULD override this.
+
+        Made non-abstract so that legacy tools which only expose named
+        action methods (e.g. ``MetasploitBridge.connect``) can still be
+        instantiated. Calling ``_run`` on a tool that doesn't override it
+        raises ``NotImplementedError``.
+        """
+        raise NotImplementedError(f"{self.name} does not implement _run()")
 
     def sanitize_input(self, value: Union[str, List[str], None]) -> str:
         if value is None:

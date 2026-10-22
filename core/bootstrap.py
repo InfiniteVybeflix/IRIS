@@ -19,15 +19,15 @@ from typing import Dict, List, Any, Optional
 import logging
 
 # Core infrastructure
-from base_agent import BaseAgent, Task, TaskResult, AgentStatus, TaskPriority
-from registry import AgentRegistry
-from communication import MessageBus
-from shared_memory import SharedMemory
-from task_queue import TaskQueue
-from commander import Commander
+from .base_agent import BaseAgent, Task, TaskResult, AgentStatus, TaskPriority
+from .registry import AgentRegistry
+from .communication import MessageBus
+from .shared_memory import SharedMemory
+from .task_queue import TaskQueue
+from .commander import Commander
 
 # Agent wrappers
-from agent_wrappers import (
+from .agent_wrappers import (
     VAULT, SCRIPT, PROBE, PIPE,
     SHADOW, SCAR, CRIMSON, AEGIS, SCALE, TRACE, OMEN,
     NEBULA, SHELL, WEB, CORE,

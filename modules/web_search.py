@@ -191,3 +191,6 @@ class WebSearchEngine:
 
 # Singleton
 web_search = WebSearchEngine()
+
+# Backwards-compat alias
+WebSearch = WebSearchEngine

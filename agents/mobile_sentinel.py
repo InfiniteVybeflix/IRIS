@@ -151,9 +151,9 @@ class MobileSentinel:
                                 content = file.read()
                             # Hardcoded secrets
                             for pattern, label in [
-                                (r'["']AIza[0-9A-Za-z_-]{35}["']', "Google API Key"),
+                                (r'''["']AIza[0-9A-Za-z_-]{35}["']''', "Google API Key"),
                                 (r'sk-[0-9A-Za-z]{48}', "OpenAI API Key"),
-                                (r'["']http://["']?[^\s"']+password[^\s"']*["']', "Password in URL"),
+                                (r'''["']http://["']?[^\s"']+password[^\s"']*["']''', "Password in URL"),
                             ]:
                                 for match in re.finditer(pattern, content):
                                     results["secrets"].append({"file": filepath, "type": label, "snippet": match.group()[:50]})

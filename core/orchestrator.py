@@ -18,7 +18,7 @@ class AevibronClient:
         self.session = requests.Session()
         self.session.headers.update({
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {config.AEVIBRON_API_KEY}
+            "Authorization": f"Bearer {config.AEVIBRON_API_KEY}",
         })
         self.base_url = config.AEVIBRON_BASE_URL.rstrip("/")
 
@@ -37,11 +37,7 @@ class AevibronClient:
     def think(self, prompt, context=""):
         messages = [
             {"role": "system", "content": self._get_system_prompt()},
-            {"role": "user", "content": f"Context: {context}
-
-Task: {prompt}
-
-Think deeply. Consider all options. Evaluate pros and cons. Then decide the best approach. Respond ONLY with valid JSON matching the schema."}
+            {"role": "user", "content": f"Context: {context}\n\nTask: {prompt}\n\nThink deeply. Consider all options. Evaluate pros and cons. Then decide the best approach. Respond ONLY with valid JSON matching the schema."}
         ]
         return self.chat(messages, model=config.DEEP_MODEL, temperature=0.8, max_tokens=4000)
 
@@ -69,251 +65,6 @@ class AgentOrchestrator:
     """IRIS v1 Hybrid central brain. Handles the observe-think-act-verify-reflect loop with structured output."""
 
 
-
-    def _quick_diagnose(self) -> Dict:
-        """Quick system health check"""
-        try:
-            db.get_owner()
-            return {"status": "healthy", "db": "connected"}
-        except Exception as e:
-            return {"status": "degraded", "db": str(e)}
-
-# Singleton
-orchestrator = AgentOrchestrator()
-
-    def _think(self, user_input: str, context: Dict) -> Dict:
-        """Deep thinking — analyze request and plan approach"""
-
-        # Build thinking prompt
-        thinking_prompt = f"""Analyze this request and decide the best approach.
-
-USER REQUEST: {user_input}
-
-CONTEXT:
-- Owner: {context['owner'].get('name', 'Unknown')}
-- Recent memories: {[m['key'] for m in context['relevant_memories']]}
-- System status: {context['system_status']}
-
-INSTRUCTIONS:
-1. Determine if this is a simple question (direct_answer) or a complex task (requires_tools)
-2. If complex, create a step-by-step plan
-3. Estimate time in minutes
-4. Assign priority (1-10, 10 = urgent)
-5. Identify which tools are needed
-
-Respond in JSON format:
-{{
-    "type": "direct_answer" or "requires_tools",
-    "thoughts": "your reasoning process",
-    "plan_summary": "brief description of approach",
-    "plan": [
-        {{"step": 1, "description": "what to do", "tool": "tool_name", "params": {{}}}}
-    ],
-    "estimated_minutes": 5,
-    "priority": 5,
-    "tools_needed": ["tool1", "tool2"]
-}}"""
-
-        response = aevibron.think(thinking_prompt, context=json.dumps(context, default=str))
-
-        if response.get("error"):
-            # Fallback: simple direct answer
-            return {
-                "type": "direct_answer",
-                "thoughts": "Falling back to direct answer due to API error",
-                "plan_summary": "Answer directly",
-                "plan": [],
-                "estimated_minutes": 1,
-                "priority": 5,
-                "tools_needed": []
-            }
-
-        # Parse reasoning from response
-        content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-
-        # Try to extract JSON
-        try:
-            # Find JSON in response
-            start = content.find("{")
-            end = content.rfind("}") + 1
-            if start >= 0 and end > start:
-                reasoning = json.loads(content[start:end])
-            else:
-                reasoning = json.loads(content)
-        except:
-            # Fallback parsing
-            reasoning = {
-                "type": "direct_answer" if len(user_input) < 100 and "?" in user_input else "requires_tools",
-                "thoughts": content[:500],
-                "plan_summary": "Processing your request",
-                "plan": [{"step": 1, "description": "Process request", "tool": "execute_python", "params": {"code": "# Processing"}}],
-                "estimated_minutes": 3,
-                "priority": 5,
-                "tools_needed": []
-            }
-
-        return reasoning
-
-    def _generate_answer(self, user_input: str, context: Dict) -> str:
-        """Generate direct answer for simple questions"""
-        messages = [
-            {"role": "system", "content": aevibron._get_system_prompt()},
-            {"role": "user", "content": user_input}
-        ]
-
-        # Add context
-        if context.get("relevant_memories"):
-            memory_text = "\n".join([f"- {m['key']}: {m['value']}" for m in context["relevant_memories"]])
-            messages.insert(1, {"role": "system", "content": f"Relevant memories:\n{memory_text}"})
-
-        response = aevibron.chat(messages, temperature=0.7)
-
-        if response.get("error"):
-            return f"I'm having trouble connecting to my brain right now. Error: {response.get('message', 'Unknown')}"
-
-        return response.get("choices", [{}])[0].get("message", {}).get("content", "I'm thinking...")
-
-    def _execute_step(self, step: Dict, context: Dict, session_id: str) -> Dict:
-        """Execute a single step from the plan"""
-        tool_name = step.get("tool")
-        params = step.get("params", {})
-
-        if not tool_name or tool_name not in self.registry.tools:
-            return {"success": False, "error": f"Unknown tool: {tool_name}", "step": step}
-
-        start_time = time.time()
-        result = self.registry.tools[tool_name](**params)
-        duration = time.time() - start_time
-
-        # Log the tool use
-        db.log("INFO", "tool_execution", f"Executed {tool_name} in {duration:.2f}s")
-
-        return {
-            "success": result.success,
-            "tool": tool_name,
-            "params": params,
-            "data": result.data,
-            "error": result.error,
-            "output": result.output,
-            "duration": duration,
-            "step": step
-        }
-
-    def _recover_step(self, step: Dict, failed_result: Dict, context: Dict) -> Dict:
-        """Attempt to recover from a failed step"""
-        # Try alternative approach
-        recovery_prompt = f"""The following step failed:
-Tool: {step.get('tool')}
-Params: {step.get('params')}
-Error: {failed_result.get('error')}
-
-Suggest an alternative approach or fix."""
-
-        response = aevibron.fast_response(recovery_prompt)
-        # For now, just log and return
-        db.log("WARNING", "recovery", f"Failed step recovery attempted: {failed_result.get('error')}")
-        return {"success": False, "recovery_attempted": True, "error": failed_result.get("error")}
-
-    def _verify_results(self, results: List[Dict], reasoning: Dict) -> Dict:
-        """Verify all results are correct and complete"""
-        all_success = all(r.get("success") for r in results)
-
-        verification = {
-            "success": all_success,
-            "total_steps": len(results),
-            "successful_steps": sum(1 for r in results if r.get("success")),
-            "failed_steps": [r for r in results if not r.get("success")],
-            "total_duration": sum(r.get("duration", 0) for r in results),
-            "checks": []
-        }
-
-        # Run additional checks if code was involved
-        code_tools = ["write_file", "edit_file", "execute_python"]
-        if any(r.get("tool") in code_tools for r in results):
-            verification["checks"].append({"check": "code_executed", "status": "review_needed"})
-
-        return verification
-
-    def _reflect(self, task_id: str, user_input: str, results: List[Dict], verification: Dict):
-        """Learn from this task execution"""
-        # Extract lessons
-        if verification["success"]:
-            lesson = f"Successfully completed: {user_input[:100]}"
-            db.save_episode(lesson, context=json.dumps({"task_id": task_id}), emotion="success",
-                          lesson="This approach works well")
-        else:
-            lesson = f"Failed task: {user_input[:100]}"
-            errors = [r.get("error") for r in results if r.get("error")]
-            db.save_episode(lesson, context=json.dumps({"task_id": task_id, "errors": errors}),
-                          emotion="frustration", lesson="Need to improve error handling")
-
-        # Save to memory if new pattern discovered
-        tools_used = [r.get("tool") for r in results if r.get("tool")]
-        if tools_used:
-            db.save_memory(
-                f"pattern_{task_id}",
-                f"Used tools {tools_used} to: {user_input[:200]}",
-                category="pattern",
-                importance=6 if verification["success"] else 8
-            )
-
-    def _generate_report(self, user_input: str, results: List[Dict], 
-                        verification: Dict, reasoning: Dict) -> str:
-        """Generate final user-facing report"""
-
-        if verification["success"]:
-            report_parts = ["✅ Done! "]
-
-            # Summarize what was accomplished
-            if reasoning.get("plan_summary"):
-                report_parts.append(reasoning["plan_summary"])
-
-            # Add key results
-            for result in results:
-                if result.get("success") and result.get("data"):
-                    if result.get("tool") == "git_create_repo":
-                        report_parts.append(f"\n📁 Created repo: {result['data'].get('url', '')}")
-                    elif result.get("tool") == "vercel_deploy":
-                        report_parts.append(f"\n🚀 Deployed to: {result['data'].get('url', '')}")
-                    elif result.get("tool") == "write_file":
-                        report_parts.append(f"\n📝 Wrote: {result['data'].get('path', '')}")
-
-            report_parts.append(f"\n\n⏱️ Completed in {verification.get('total_duration', 0):.1f}s")
-            report_parts.append("\n\nWhat would you like me to do next?")
-
-            return "\n".join(report_parts)
-        else:
-            errors = "\n".join([f"- {r.get('error', 'Unknown error')}" for r in verification.get("failed_steps", [])])
-            return f"""❌ I encountered some issues:
-{errors}
-
-Let me try a different approach. Should I:
-1. Retry with modifications
-2. Try an alternative solution
-3. Explain what went wrong in detail"""
-
-    def _status(self, phase: str, message: str, progress: int, 
-                final: bool = False, data: Dict = None) -> Dict:
-        """Generate status update for UI"""
-        return {
-            "phase": phase,
-            "message": message,
-            "progress": progress,
-            "final": final,
-            "timestamp": datetime.now().isoformat(),
-            "data": data or {}
-        }
-
-    def _quick_diagnose(self) -> Dict:
-        """Quick system health check"""
-        try:
-            db.get_owner()
-            return {"status": "healthy", "db": "connected"}
-        except Exception as e:
-            return {"status": "degraded", "db": str(e)}
-
-# Singleton
-orchestrator = AgentOrchestrator()
 
     def __init__(self):
         self.registry = tool_registry
@@ -607,25 +358,16 @@ Respond with JSON:
             for r in results:
                 if r.success and r.data:
                     if r.tool == "git_create_repo":
-                        parts.append(f"
-📁 Created repo: {r.data.get('url', '')}")
+                        parts.append(f"\n📁 Created repo: {r.data.get('url', '')}")
                     elif r.tool == "vercel_deploy":
-                        parts.append(f"
-🚀 Deployed to: {r.data.get('url', '')}")
+                        parts.append(f"\n🚀 Deployed to: {r.data.get('url', '')}")
                     elif r.tool == "write_file":
-                        parts.append(f"
-📝 Wrote: {r.data.get('path', '')}")
-            parts.append(f"
-
-⏱️ Completed in {verification.total_duration:.1f}s")
-            parts.append("
-
-What would you like me to do next?")
-            return "
-".join(parts)
+                        parts.append(f"\n📝 Wrote: {r.data.get('path', '')}")
+            parts.append(f"\n\n⏱️ Completed in {verification.total_duration:.1f}s")
+            parts.append("\n\nWhat would you like me to do next?")
+            return "\n".join(parts)
         else:
-            errors = "
-".join([f"- {r.error}" for r in verification.failed_steps])
+            errors = "\n".join([f"- {r.error}" for r in verification.failed_steps])
             return f"""❌ I encountered some issues:
 {errors}
 

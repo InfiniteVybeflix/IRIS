@@ -68,13 +68,13 @@ Provide ONLY the completion. No explanations. No markdown."""
             code = self._get_file_lines(file_path, start_line, end_line)
 
             from core.aevibron_client import aevibron
-            prompt = f"Explain this code:
+            prompt = f"""Explain this code:
 
 ```python
 {code}
 ```
 
-Provide a concise explanation."
+Provide a concise explanation."""
 
             response = aevibron.fast_response(prompt)
             explanation = response.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -96,13 +96,13 @@ Provide a concise explanation."
             code = self._get_file_lines(file_path, start_line, end_line)
 
             from core.aevibron_client import aevibron
-            prompt = f"Refactor this code to be cleaner, more efficient, and follow best practices:
+            prompt = f"""Refactor this code to be cleaner, more efficient, and follow best practices:
 
 ```python
 {code}
 ```
 
-Provide ONLY the refactored code. No explanations."
+Provide ONLY the refactored code. No explanations."""
 
             response = aevibron.fast_response(prompt)
             refactored = response.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -128,13 +128,13 @@ Provide ONLY the refactored code. No explanations."
                 code = f.read()
 
             from core.aevibron_client import aevibron
-            prompt = f"Find potential bugs, security issues, and code smells in this file:
+            prompt = f"""Find potential bugs, security issues, and code smells in this file:
 
 ```python
 {code[:5000]}
 ```
 
-List each issue with line number and severity."
+List each issue with line number and severity."""
 
             response = aevibron.fast_response(prompt)
             issues = response.get("choices", [{}])[0].get("message", {}).get("content", "")

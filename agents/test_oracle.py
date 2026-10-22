@@ -150,7 +150,7 @@ class PROBE(BaseAgent):
 
         # Generate setup
         tests.append("    def setup_method(self):")
-        tests.append(f"        """Set up test fixtures for {class_name}."""")
+        tests.append(f'        """Set up test fixtures for {class_name}."""')
 
         if init_method:
             args = [arg.arg for arg in init_method.args.args if arg.arg != "self"]
@@ -170,7 +170,7 @@ class PROBE(BaseAgent):
 
         # Edge case tests
         tests.append("    def test_instance_creation_with_none(self):")
-        tests.append(f"        """Test {class_name} handles None gracefully."""")
+        tests.append(f'        """Test {class_name} handles None gracefully."""')
         tests.append(f"        instance = {class_name}()")
         tests.append("        assert instance is not None")
         tests.append("")
@@ -184,7 +184,7 @@ class PROBE(BaseAgent):
 
         # Happy path test
         tests.append(f"    def test_{method_name}_valid_input(self):")
-        tests.append(f"        """Test {method_name} with valid input."""")
+        tests.append(f'        """Test {method_name} with valid input."""')
 
         # Generate args based on method signature
         args = [arg.arg for arg in node.args.args if arg.arg != "self"]
@@ -198,7 +198,7 @@ class PROBE(BaseAgent):
 
         # Invalid input test
         tests.append(f"    def test_{method_name}_invalid_input(self):")
-        tests.append(f"        """Test {method_name} handles invalid input."""")
+        tests.append(f'        """Test {method_name} handles invalid input."""')
         tests.append("        with pytest.raises(Exception):")
         if args:
             tests.append(f"            self.instance.{method_name}(None)")
@@ -216,7 +216,7 @@ class PROBE(BaseAgent):
         args = [arg.arg for arg in node.args.args]
 
         tests.append(f"def test_{func_name}_valid_input():")
-        tests.append(f"    """Test {func_name} with valid input."""")
+        tests.append(f'    """Test {func_name} with valid input."""')
         if args:
             call_args = ", ".join([f"'test_{arg}'" for arg in args])
             tests.append(f"    result = {func_name}({call_args})")
@@ -226,7 +226,7 @@ class PROBE(BaseAgent):
         tests.append("")
 
         tests.append(f"def test_{func_name}_edge_cases():")
-        tests.append(f"    """Test {func_name} edge cases."""")
+        tests.append(f'    """Test {func_name} edge cases."""')
         tests.append(f"    result = {func_name}()")
         tests.append("    assert result is not None")
         tests.append("")
@@ -449,10 +449,10 @@ class PROBE(BaseAgent):
 
         # SQL Injection patterns
         sql_patterns = [
-            r'execute\s*\(\s*["'].*%s',
-            r'execute\s*\(\s*f["']',
-            r'execute\s*\(\s*["'].*\+',
-            r'cursor\.execute\s*\(\s*["'].*\{.*\}',
+            r'''execute\s*\(\s*["'].*%s''',
+            r'''execute\s*\(\s*f["']''',
+            r'''execute\s*\(\s*["'].*\+''',
+            r'''cursor\.execute\s*\(\s*["'].*\{.*\}''',
         ]
         for pattern in sql_patterns:
             if re.search(pattern, code, re.IGNORECASE):
@@ -470,10 +470,10 @@ class PROBE(BaseAgent):
 
         # Hardcoded secrets
         secret_patterns = [
-            r'password\s*=\s*["'][^"']+["']',
-            r'secret\s*=\s*["'][^"']+["']',
-            r'api_key\s*=\s*["'][^"']+["']',
-            r'token\s*=\s*["'][^"']+["']',
+            r'''password\s*=\s*["'][^"]']+["']''',
+            r'''secret\s*=\s*["'][^"]']+["']''',
+            r'''api_key\s*=\s*["'][^"]']+["']''',
+            r'''token\s*=\s*["'][^"]']+["']''',
         ]
         for pattern in secret_patterns:
             if re.search(pattern, code, re.IGNORECASE):
@@ -563,9 +563,11 @@ class PROBE(BaseAgent):
 
 @pytest.fixture
 def {data_type}_fixture():
-    """Fixture providing {data_type} test data."""
+    \"\"\"
+    Fixture providing {data_type} test data.
+    \"\"\"
     return {json.dumps(data, indent=2)}
-""".format()
+"""
 
 
 __all__ = ["PROBE"]

@@ -138,7 +138,7 @@ class GitEngine(BaseTool):
                 import re
                 patterns = {"aws_access_key": re.compile(r"AKIA[0-9A-Z]{16}"), "aws_secret_key": re.compile(r"[0-9a-zA-Z/+]{40}"),
                     "private_key": re.compile(r"-----BEGIN (RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----"),
-                    "api_key_generic": re.compile(r"['"]?api[_-]?key['"]?\s*[:=]\s*['"][a-zA-Z0-9_\-]{16,}['"]")}
+                    "api_key_generic": re.compile(r"['\"]?api[_-]?key['\"]?\s*[:=]\s*['\"][a-zA-Z0-9_\-]{16,}['\"]")}
                 for root, _, files in os.walk(safe_path):
                     if ".git" in root:
                         continue

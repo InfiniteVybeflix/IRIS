@@ -98,7 +98,7 @@ class Database:
 
     def _init_tables(self):
         pg = self.use_postgres
-        ai = "AUTOINCREMENT" if not pg else "SERIAL"
+        ai = "INTEGER" if not pg else "SERIAL"
         ts = "TIMESTAMP" if pg else "TEXT"
         ph = "%s" if pg else "?"
         now = "CURRENT_TIMESTAMP" if pg else "CURRENT_TIMESTAMP"

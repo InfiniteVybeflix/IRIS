@@ -1,2 +1,60 @@
+# ─── IRIS .gitignore ────────────────────────────────────────────────────
+# Runtime artifacts — never commit these
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# SQLite databases (regenerated at runtime)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# IRIS runtime data
+data/*.db
+data/iris.log
+data/creator_profile.json
+data/iris_learnings/*.md
+data/iris_knowledge/*.md
+data/iris_self/*.md
+data/chroma_db/
+
+# Backups from edit_own_code
+*.iris-backup
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Keep .gitkeep files (they preserve directory structure)
+!**/.gitkeep

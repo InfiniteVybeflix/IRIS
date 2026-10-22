@@ -108,7 +108,7 @@ class CodeEngineSkill(BaseSkill):
                 'interface ProcessResult<T> {\n'
                 '    success: boolean;\n'
                 '    data: T | null;\n'
-                '    error: string | null;\n'}\n\n'
+                '    error: string | null;\n}\n\n'
                 'class DataProcessor<T> {\n'
                 '    private config: Config;\n'
                 '    constructor(config: Config = {}) {\n'

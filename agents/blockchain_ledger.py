@@ -118,18 +118,15 @@ class BlockchainLedger:
         issues: List[Dict[str, Any]] = []
         for pattern, vuln_type, severity in self.VULN_PATTERNS:
             for match in re.finditer(pattern, source, re.DOTALL):
-                line = source[:match.start()].count("
-") + 1
+                line = source[:match.start()].count("\n") + 1
                 issues.append({"type": vuln_type, "severity": severity, "line": line, "snippet": source[match.start():match.end()][:80]})
         # Check for missing visibility
         for match in re.finditer(r"function\s+(\w+)\s*\([^)]*\)\s*(?!\s*(?:public|private|internal|external))", source):
-            line = source[:match.start()].count("
-") + 1
+            line = source[:match.start()].count("\n") + 1
             issues.append({"type": "missing_visibility", "severity": "low", "line": line, "snippet": match.group()[:80]})
         # Check for unprotected functions
         for match in re.finditer(r"function\s+(\w+)\s*\([^)]*\)\s*public\s*(?!\s*onlyOwner|require\s*\(\s*msg\.sender)", source):
-            line = source[:match.start()].count("
-") + 1
+            line = source[:match.start()].count("\n") + 1
             issues.append({"type": "unprotected_function", "severity": "medium", "line": line, "snippet": match.group()[:80]})
 
         # Try slither if available

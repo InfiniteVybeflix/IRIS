@@ -369,7 +369,7 @@ class VAULT(BaseAgent):
 
         # Look for entity definitions in the request
         entity_patterns = [
-            r"(?:entity|table|model)\s+['"]?([A-Za-z_]+)['"]?",
+            r'''(?:entity|table|model)\s+['"]?([A-Za-z_]+)['"]?''',
             r"([A-Za-z]+)\s+(?:has|with|containing)",
         ]
 

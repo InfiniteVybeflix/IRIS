@@ -225,7 +225,7 @@ Respond in JSON format:
         for line in lines:
             stripped = line.strip()
             if stripped.startswith(("if ", "for ", "while ", "def ", "class ", "elif ", "else", "try", "except", "finally")):
-                if not stripped.endswith(":") and not stripped.endswith("\"):
+                if not stripped.endswith(":") and not stripped.endswith("\\"):
                     line = line + ":"
             fixed_lines.append(line)
         return "\n".join(fixed_lines)
@@ -271,6 +271,8 @@ Respond in JSON format:
                         if fix_result.get("success"):
                             logger.info(f"Auto-fixed {func.__name__}!")
                             # Note: In production, you'd need to reload the module
+                    except Exception as fix_exc:
+                        logger.warning(f"Auto-fix attempt failed for {func.__name__}: {fix_exc}")
 
                 # Re-raise with enhanced info
                 raise Exception(f"[{analysis['error_type']}] {analysis['message']}\nAI Suggestion: {analysis['ai_analysis'].get('fix_suggestion', 'N/A')}") from e
@@ -279,3 +281,6 @@ Respond in JSON format:
 
 # Singleton
 auto_debug = AutoDebugger()
+
+# Backwards-compat alias
+AutoDebug = AutoDebugger

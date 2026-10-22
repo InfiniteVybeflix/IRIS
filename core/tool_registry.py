@@ -378,28 +378,19 @@ class ToolRegistry:
                 content = f.read()
             if old_text not in content:
                 # Try fuzzy matching with difflib
-                lines = content.split('
-')
-                old_lines = old_text.split('
-')
+                lines = content.split('\n')
+                old_lines = old_text.split('\n')
                 best_ratio = 0
                 best_idx = -1
                 for i in range(len(lines) - len(old_lines) + 1):
-                    chunk = '
-'.join(lines[i:i+len(old_lines)])
+                    chunk = '\n'.join(lines[i:i+len(old_lines)])
                     ratio = difflib.SequenceMatcher(None, chunk, old_text).ratio()
                     if ratio > best_ratio:
                         best_ratio = ratio
                         best_idx = i
                 if best_ratio > 0.8:
-                    new_chunk = '
-'.join(lines[:best_idx]) + '
-' + new_text + '
-' + '
-'.join(lines[best_idx+len(old_lines):])
-                    new_content = new_chunk.strip('
-') + '
-'
+                    new_chunk = '\n'.join(lines[:best_idx]) + '\n' + new_text + '\n' + '\n'.join(lines[best_idx+len(old_lines):])
+                    new_content = new_chunk.strip('\n') + '\n'
                 else:
                     return ToolResult(success=False, error=f"Old text not found in {path} (fuzzy match: {best_ratio:.2f})")
             else:
@@ -431,8 +422,7 @@ class ToolRegistry:
                         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                             content = f.read()
                             if pattern in content:
-                                lines = [i+1 for i, line in enumerate(content.split('
-')) if pattern in line]
+                                lines = [i+1 for i, line in enumerate(content.split('\n')) if pattern in line]
                                 results.append({"file": file_path, "lines": lines})
                     except: pass
             return ToolResult(success=True, data={"matches": results, "count": len(results)})
@@ -507,8 +497,7 @@ class ToolRegistry:
             soup = BeautifulSoup(response.text, 'html.parser')
             for script in soup(["script", "style"]):
                 script.decompose()
-            text = soup.get_text(separator='
-', strip=True)
+            text = soup.get_text(separator='\n', strip=True)
             title = soup.title.string if soup.title else "No title"
             return ToolResult(success=True, data={"url": url, "title": title, "content": text[:10000], "status_code": response.status_code})
         except Exception as e:
@@ -569,8 +558,7 @@ class ToolRegistry:
                                   cwd=project_path, capture_output=True, text=True, timeout=120)
             if result.returncode == 0:
                 url = None
-                for line in result.stdout.split("
-"):
+                for line in result.stdout.split("\n"):
                     if "https://" in line and "vercel.app" in line:
                         url = line.strip().split()[-1]
                         break
@@ -592,8 +580,7 @@ class ToolRegistry:
                 for file in files:
                     tree.append(f"{subindent}{file}")
                     file_count += 1
-            return ToolResult(success=True, data={"tree": "
-".join(tree), "file_count": file_count, "path": str(full_path)})
+            return ToolResult(success=True, data={"tree": "\n".join(tree), "file_count": file_count, "path": str(full_path)})
         except Exception as e:
             return ToolResult(success=False, error=str(e))
 
@@ -601,10 +588,10 @@ class ToolRegistry:
         try:
             issues = []
             secret_patterns = [
-                (r'api[_-]?key\s*=\s*["']\w{20,}["']', "Hardcoded API key"),
-                (r'password\s*=\s*["'][^"']{8,}["']', "Hardcoded password"),
-                (r'token\s*=\s*["']\w{20,}["']', "Hardcoded token"),
-                (r'secret\s*=\s*["']\w{20,}["']', "Hardcoded secret"),
+                (r'api[_-]?key\s*=\s*["\']\w{20,}["\']', "Hardcoded API key"),
+                (r'password\s*=\s*["\'][^"\']{8,}["\']', "Hardcoded password"),
+                (r'token\s*=\s*["\']\w{20,}["\']', "Hardcoded token"),
+                (r'secret\s*=\s*["\']\w{20,}["\']', "Hardcoded secret"),
             ]
             import re
             for root, _, files in os.walk(path):

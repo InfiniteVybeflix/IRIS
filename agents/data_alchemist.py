@@ -74,7 +74,7 @@ class DataAlchemist:
     # Regex patterns for entity extraction
     _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
     _PHONE_RE = re.compile(r"(?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}")
-    _URL_RE = re.compile(r"https?://[^\s<>"{}|\^`[\]]+")
+    _URL_RE = re.compile(r'''https?://[^\s<>"{}|\^`[\]]+''')
     _IP_RE = re.compile(r"(?:\d{1,3}\.){3}\d{1,3}")
     _SSN_RE = re.compile(r"\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b")
     _CC_RE = re.compile(r"\b(?:\d{4}[-\s]?){3}\d{4}\b")
@@ -316,7 +316,7 @@ asyncio.run(main())
                         encoded = urllib.parse.quote_plus(q)
                         url = f"https://html.duckduckgo.com/html/?q={encoded}"
                         item = self.scrape_static(url, timeout=20)
-                        links = re.findall(r"<a rel="nofollow" class="result__a" href="([^"]+)">([^<]+)</a>", item.raw_html)
+                        links = re.findall(r'''<a rel="nofollow" class="result__a" href="([^"]+)">([^<]+)</a>''', item.raw_html)
                         for href, title in links[:10]:
                             aggregated.append({"query": q, "engine": engine, "title": title, "url": href})
                     except Exception as e:

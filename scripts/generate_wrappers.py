@@ -8,8 +8,7 @@ from pathlib import Path
 from typing import Dict
 
 # Template for text models (LLMs)
-TEXT_WRAPPER = """
-"""IRIS {class_name} — {model_name} text generation wrapper."""
+TEXT_WRAPPER = """\n"""IRIS {class_name} — {model_name} text generation wrapper."""
 import os
 import sys
 from pathlib import Path
@@ -119,8 +118,7 @@ class {class_name}:
 """
 
 # Template for image models
-IMAGE_WRAPPER = """
-"""IRIS {class_name} — {model_name} image generation wrapper."""
+IMAGE_WRAPPER = """\n"""IRIS {class_name} — {model_name} image generation wrapper."""
 import os
 from pathlib import Path
 from typing import Optional, List, Union
@@ -233,8 +231,7 @@ class {class_name}:
 """
 
 # Template for audio models
-AUDIO_WRAPPER = """
-"""IRIS {class_name} — {model_name} audio generation wrapper."""
+AUDIO_WRAPPER = """\n"""IRIS {class_name} — {model_name} audio generation wrapper."""
 import os
 from pathlib import Path
 from typing import Optional, List
@@ -307,8 +304,7 @@ class {class_name}:
 """
 
 # Template for video models
-VIDEO_WRAPPER = """
-"""IRIS {class_name} — {model_name} video generation wrapper."""
+VIDEO_WRAPPER = """\n"""IRIS {class_name} — {model_name} video generation wrapper."""
 import os
 from pathlib import Path
 from typing import Optional, List
@@ -384,8 +380,7 @@ class {class_name}:
 """
 
 # Template for 3D models
-THREE_D_WRAPPER = """
-"""IRIS {class_name} — {model_name} 3D generation wrapper."""
+THREE_D_WRAPPER = """\n"""IRIS {class_name} — {model_name} 3D generation wrapper."""
 import os
 from pathlib import Path
 from typing import Optional, List, Tuple
@@ -463,8 +458,7 @@ class {class_name}:
 """
 
 # Template for motion models
-MOTION_WRAPPER = """
-"""IRIS {class_name} — {model_name} motion generation wrapper."""
+MOTION_WRAPPER = """\n"""IRIS {class_name} — {model_name} motion generation wrapper."""
 import os
 from pathlib import Path
 from typing import Optional, List, Dict
@@ -542,8 +536,7 @@ class {class_name}:
 """
 
 # Template for robotics models
-ROBOTICS_WRAPPER = """
-"""IRIS {class_name} — {model_name} robotics VLA wrapper."""
+ROBOTICS_WRAPPER = """\n"""IRIS {class_name} — {model_name} robotics VLA wrapper."""
 import os
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -618,8 +611,7 @@ class {class_name}:
 """
 
 # Template for science models
-SCIENCE_WRAPPER = """
-"""IRIS {class_name} — {model_name} scientific computation wrapper."""
+SCIENCE_WRAPPER = """\n"""IRIS {class_name} — {model_name} scientific computation wrapper."""
 import os
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple

@@ -633,7 +633,7 @@ class ThreatProphet:
             # Content-based matching (IPs, domains, URLs)
             ip_pattern = re.compile(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b")
             domain_pattern = re.compile(r"\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b")
-            url_pattern = re.compile(r"https?://[^\s"'<>]+")
+            url_pattern = re.compile(r'''https?://[^\s"'<>]+''')
 
             for ip in set(ip_pattern.findall(content)):
                 matches = self.match_ioc(ip, "ip")

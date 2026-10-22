@@ -53,7 +53,16 @@ class SharedMemory:
             handler.setFormatter(formatter)
             self._logger.addHandler(handler)
 
-        self._persistence_path = persistence_path or "/mnt/agents/output/agents/data/shared_memory.json"
+        if persistence_path is None:
+            try:
+                from config import config
+                default_dir = os.path.join(config.DATA_DIR, "agents")
+                os.makedirs(default_dir, exist_ok=True)
+                persistence_path = os.path.join(default_dir, "shared_memory.json")
+            except Exception:
+                persistence_path = os.path.join(os.getcwd(), "data", "agents", "shared_memory.json")
+                os.makedirs(os.path.dirname(persistence_path), exist_ok=True)
+        self._persistence_path = persistence_path
         Path(self._persistence_path).parent.mkdir(parents=True, exist_ok=True)
 
         self._logger.info("[SharedMemory] Collective consciousness initialized.")

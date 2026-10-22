@@ -144,16 +144,15 @@ class ProactiveEngine:
         recent_messages = db.get_conversation("system", limit=5)
         upcoming = db.get_upcoming_events(hours=24)
         stats = aevibron.get_stats()
-        summary = f"Current Context:
+        summary = f"""Current Context:
 - Time: {now.strftime('%Y-%m-%d %H:%M')} ({now.strftime('%A')})
 - Upcoming events (24h): {len(upcoming)}
 - Recent interactions: {len(self.context_history)}
 - Gateway health: {'Good' if stats.get('error_rate', 1) < 0.1 else 'Degraded'}
 - Proactive mode: {'Active' if self.enabled else 'Inactive'}
-"
+"""
         if upcoming:
-            summary += f"- Next event: {upcoming[0]['title']} at {upcoming[0]['start_time']}
-"
+            summary += f"- Next event: {upcoming[0]['title']} at {upcoming[0]['start_time']}\n"
         return summary
 
     def suggest_action(self, context: str = "") -> Optional[str]:

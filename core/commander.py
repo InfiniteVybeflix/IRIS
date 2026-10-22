@@ -17,11 +17,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from base_agent import BaseAgent, AgentStatus, Task, TaskPriority, TaskResult
-from communication import MessageBus
-from registry import AgentRegistry
-from shared_memory import SharedMemory
-from task_queue import TaskQueue
+from .base_agent import BaseAgent, AgentStatus, Task, TaskPriority, TaskResult
+from .communication import MessageBus
+from .registry import AgentRegistry
+from .shared_memory import SharedMemory
+from .task_queue import TaskQueue
 
 
 @dataclass
@@ -612,8 +612,7 @@ class Commander:
         if report.recommendations:
             parts.append(f"**Recommendations:** {len(report.recommendations)} items")
 
-        return "
-".join(parts)
+        return "\n".join(parts)
 
     def _extract_recommendations(self, mission: MissionPlan, findings: List[Dict[str, Any]]) -> List[str]:
         """Extract recommendations from findings and results."""
@@ -693,8 +692,7 @@ class Commander:
         lines.append(f"Execution Time: {report.execution_time:.2f}s")
         lines.append("=" * 60)
 
-        return "
-".join(lines)
+        return "\n".join(lines)
 
     def get_agent_status(self) -> Dict[str, Any]:
         """

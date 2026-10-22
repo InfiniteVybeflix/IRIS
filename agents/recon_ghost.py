@@ -378,14 +378,14 @@ class SHADOW(BaseAgent):
             f"site:{target} filetype:xls OR filetype:xlsx",
             f"site:{target} inurl:admin",
             f"site:{target} inurl:login",
-            f"site:{target} intitle:"index of"",
+            f'''site:{target} intitle:"index of"''',
             f"site:{target} ext:sql OR ext:dump OR ext:backup",
-            f"site:{target} intext:"password" OR intext:"secret" OR intext:"api_key"",
+            f'''site:{target} intext:"password" OR intext:"secret" OR intext:"api_key"''',
             f"site:{target} inurl:api OR inurl:swagger OR inurl:graphql",
             f"site:{target} filetype:log",
             f"site:pastebin.com {target}",
             f"site:github.com {target}",
-            f"site:{target} intext:"confidential" OR intext:"internal use only"",
+            f'''site:{target} intext:"confidential" OR intext:"internal use only"''',
         ]
 
         return {

@@ -251,8 +251,7 @@ class VoiceHerald:
         body.append(b"")
         body.append(sample_data)
         body.append(f"--{boundary}--".encode())
-        full_body = b"
-".join(body)
+        full_body = b"\n".join(body)
         req = __import__("urllib.request").request.Request(
             "https://api.elevenlabs.io/v1/voices/add",
             data=full_body,

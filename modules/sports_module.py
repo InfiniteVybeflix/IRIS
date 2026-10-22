@@ -113,8 +113,7 @@ class SportsModule:
         for m in matches[:5]:
             score = f"{m['home_score']}-{m['away_score']}" if m['home_score'] is not None else "vs"
             lines.append(f"{m['home_team']} {score} {m['away_team']} — {m['status']} {m.get('minute', '')}'")
-        return "
-".join(lines)
+        return "\n".join(lines)
 
 # Singleton
 sports_module = SportsModule()

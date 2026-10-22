@@ -27,6 +27,7 @@ import sys
 import logging
 import threading
 from datetime import datetime
+from typing import Any, Dict, Optional
 from flask import Flask, request, jsonify, render_template, session, Response, g
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -318,6 +319,10 @@ class IRISCore:
 
 iris = IRISCore()
 
+# Register the IRIS singleton so any module can access it
+from core.runtime import set_iris_core
+set_iris_core(iris)
+
 blueprints = [
     auth_bp, chat_bp, voice_bp, vision_bp, phone_bp, calendar_bp, notes_bp,
     math_bp, projects_bp, self_improve_bp, consciousness_bp, memory_bp,
@@ -425,6 +430,77 @@ def plugins_search():
     """Search plugins by keyword."""
     query = request.args.get("q", "")
     return jsonify(iris.omnis.discover(query))
+
+
+# ─── LLM Router API ─────────────────────────────────────────────────────────
+@app.route("/api/llm/status", methods=["GET"])
+def llm_status():
+    from core.llm_router import llm_router
+    return jsonify({
+        "default_backend": llm_router._default_backend_name,
+        "default_model": llm_router._default_model or None,
+        "fast_model": llm_router._fast_model or None,
+        "deep_model": llm_router._deep_model or None,
+        "backends": llm_router.list_backends(),
+    })
+
+@app.route("/api/llm/models", methods=["GET"])
+def llm_models():
+    from core.llm_router import llm_router
+    backend = request.args.get("backend")
+    try:
+        models = llm_router.get_models(backend=backend)
+        return jsonify({"success": True, "backend": backend or llm_router._default_backend_name, "models": models, "count": len(models)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
+@app.route("/api/llm/chat", methods=["POST"])
+def llm_chat():
+    from core.llm_router import llm_router
+    data = request.get_json() or {}
+    messages = data.get("messages", [])
+    if not messages:
+        return jsonify({"success": False, "error": "messages array required"}), 400
+    backend = data.get("backend")
+    model = data.get("model")
+    stream = data.get("stream", False)
+    temperature = float(data.get("temperature", 0.7))
+    max_tokens = int(data.get("max_tokens", 4096))
+    try:
+        if stream:
+            def generate():
+                for chunk in llm_router.stream_chat(messages, model=model, backend=backend, temperature=temperature, max_tokens=max_tokens):
+                    yield f"data: {json.dumps({'content': chunk})}\n\n"
+                yield "data: [DONE]\n\n"
+            return Response(generate(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        resp = llm_router.chat(messages, model=model, backend=backend, temperature=temperature, max_tokens=max_tokens)
+        return jsonify({"success": True, "content": resp.content, "model": resp.model,
+                         "usage": resp.usage, "finish_reason": resp.finish_reason,
+                         "backend": backend or llm_router._default_backend_name})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ─── IRIS Autonomous Self-Healing Loop API ─────────────────────────────────
+# POST /api/iris/autonomous
+#   Body: {task: str, context?: dict, max_retries?: int}
+#   Returns: full trajectory with plan, steps, fix attempts, success
+@app.route("/api/iris/autonomous", methods=["POST"])
+def iris_autonomous():
+    data = request.get_json() or {}
+    task = data.get("task", "")
+    if not task:
+        return jsonify({"success": False, "error": "task required"}), 400
+    context = data.get("context", {})
+    max_retries = int(data.get("max_retries", 3))
+    try:
+        from modules.autonomous_loop import run_autonomous_task
+        trajectory = run_autonomous_task(task, context, max_retries=max_retries)
+        return jsonify(trajectory.to_dict())
+    except Exception as e:
+        import traceback
+        return jsonify({"success": False, "error": str(e),
+                        "traceback": traceback.format_exc()[-1000:]}), 500
 
 
 if __name__ == "__main__":

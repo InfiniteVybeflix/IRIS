@@ -1,12 +1,16 @@
 """IRIS v1 Hybrid Voice System — Live Mode with 3D Face"""
 import os
 import asyncio
-import edge_tts
 import tempfile
 from pathlib import Path
 from typing import Optional, Dict
 from config import config
 from core.db import db
+
+try:
+    import edge_tts
+except ImportError:
+    edge_tts = None
 
 class VoiceSystem:
     """

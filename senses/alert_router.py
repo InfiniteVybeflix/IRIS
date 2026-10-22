@@ -190,17 +190,17 @@ class AlertRouter(BaseSense):
         msg = alert.get("message", "No message")
         data = json.dumps(alert.get("data", {}), indent=2) if alert.get("data") else ""
         if agent_name.lower() == "slack":
-            return f":warning: *{severity}* | {msg}
-```{data}```"
+            return f""":warning: *{severity}* | {msg}
+```{data}```"""
         elif agent_name.lower() == "discord":
-            return f"**{severity}** | {msg}
-```{data}```"
+            return f"""**{severity}** | {msg}
+```{data}```"""
         elif agent_name.lower() == "telegram":
-            return f"<b>{severity}</b>
-{msg}"
+            return f"""<b>{severity}</b>
+{msg}"""
         else:
-            return f"[{severity}] {msg}
-{data}"
+            return f"""[{severity}] {msg}
+{data}"""
 
     def send_notification(self, channel: str, message: str) -> Dict[str, Any]:
         """Send a raw notification to a channel."""

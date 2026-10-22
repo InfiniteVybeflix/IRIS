@@ -92,11 +92,9 @@ class SandboxExecutor:
 
     def _wrap_code(self, code: str, allowed_modules: List[str]) -> str:
         """Wrap user code with safety measures"""
-        imports = "
-".join([f"import {mod}" for mod in allowed_modules])
+        imports = "\n".join([f"import {mod}" for mod in allowed_modules])
 
-        return f"""
-{imports}
+        return f'''{imports}
 
 # Restricted builtins
 _safe_builtins = {{
@@ -116,7 +114,7 @@ user_code = """
 """
 
 exec(user_code, {{"__builtins__": _safe_builtins}})
-"""
+'''
 
     def _run_restricted(self, code_file: str, run_dir: str) -> Dict:
         """Run code with time and memory limits"""

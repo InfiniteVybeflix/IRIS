@@ -9,7 +9,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'agents'))
 
-from base_agent import BaseAgent, Task, TaskResult, AgentStatus, TaskPriority
+from .base_agent import BaseAgent, Task, TaskResult, AgentStatus, TaskPriority
 from typing import Any, Dict, List, Optional
 
 # Import all agent classes

@@ -1398,7 +1398,7 @@ scrape_configs:
                 {
                     "title": "Error Rate",
                     "type": "graph",
-                    "targets": [{"expr": "rate(http_requests_total{status=~"5.."}[5m])"}],
+                    "targets": [{"expr": "rate(http_requests_total{status=~\"5..\"}[5m])"}],
                 },
                 {
                     "title": "Latency (p95)",
@@ -1456,8 +1456,7 @@ scrape_configs:
       severity: warning
     annotations:
       summary: "Disk space low"
-      description: "Disk space is below 10%"
-"""
+      description: "Disk space is below 10%"\n"""
 
     def _generate_service_monitor(self) -> str:
         return """apiVersion: monitoring.coreos.com/v1
@@ -1723,7 +1722,7 @@ spec:
       - name: {{{{ .Chart.Name }}}}
         securityContext:
           {{{{- toYaml .Values.securityContext | nindent 12 }}}}
-        image: "{{{{ .Values.image.repository }}}}:{{{{ .Values.image.tag | default .Chart.AppVersion }}}"
+        image: "{{{{ .Values.image.repository }}}}:{{{{ .Values.image.tag | default .Chart.AppVersion }}}}"
         imagePullPolicy: {{{{ .Values.image.pullPolicy }}}}
         ports:
         - name: http
@@ -1851,8 +1850,7 @@ type: Opaque
 stringData:
   database-url: "postgresql://user:password@db:5432/app"
   redis-url: "redis://redis:6379"
-  jwt-secret: "change-me-in-production"
-""".format()
+  jwt-secret: "change-me-in-production"\n""".format()
 
     def generate_proxy_config(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Generate reverse proxy configuration."""

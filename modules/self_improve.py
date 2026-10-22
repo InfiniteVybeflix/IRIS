@@ -32,20 +32,17 @@ class SelfImprovementEngine:
                 with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
 
-                for i, line in enumerate(content.split("
-"), 1):
+                for i, line in enumerate(content.split("\n"), 1):
                     if any(marker in line for marker in ["TODO", "FIXME", "HACK", "BUG", "XXX"]):
                         issues.append({"type": "todo", "file": str(file_path), "line": i,
                                        "description": line.strip(), "severity": "medium"})
 
-                for i, line in enumerate(content.split("
-"), 1):
+                for i, line in enumerate(content.split("\n"), 1):
                     if "except:" in line and "except Exception" not in line:
                         issues.append({"type": "code_quality", "file": str(file_path), "line": i,
                                        "description": "Bare except clause", "severity": "high"})
 
-                for i, line in enumerate(content.split("
-"), 1):
+                for i, line in enumerate(content.split("\n"), 1):
                     if any(p in line for p in ["api_key = ", "password = ", "token = "]):
                         if "triple_quote" not in line:
                             issues.append({"type": "security", "file": str(file_path), "line": i,
@@ -92,18 +89,18 @@ class SelfImprovementEngine:
         except:
             return {"success": False, "error": "Could not read file"}
 
-        prompt = f"Fix this code issue:
+        prompt = f"""Fix this code issue:
 
 File: {file_path}
 Line: {line_num}
-Issue: {issue[chr(39)+chr(39)+chr(39)]description}
+Issue: {issue['description']}
 
 Context:
 ```python
 {context}
 ```
 
-Provide ONLY the fixed code. No explanations."
+Provide ONLY the fixed code. No explanations."""
         response = aevibron.fast_response(prompt)
         fix_code = response.get("choices", [{}])[0].get("message", {}).get("content", "")
         return {"success": True, "original_issue": issue, "proposed_fix": fix_code,
@@ -127,7 +124,7 @@ Provide ONLY the fixed code. No explanations."
                 self._log_change(file_path, old_text, new_text, backup_path, "success")
                 return ToolResult(True, data={"file": file_path, "backup": backup_path, "test_result": test_result})
             else:
-                return ToolResult(False, error=f"Tests failed: {test_result[chr(39)]error[chr(39)]}",
+                return ToolResult(False, error=f"Tests failed: {test_result['error']}",
                                   data={"file": file_path, "test_result": test_result})
         except Exception as e:
             return ToolResult(False, error=str(e))
@@ -174,16 +171,16 @@ Provide ONLY the fixed code. No explanations."
         self.change_log.append(change)
         log_file = os.path.join(config.SELF_DIR, "improvements.md")
         with open(log_file, "a", encoding="utf-8") as f:
-            f.write(f"
-## {change[chr(39)]timestamp[chr(39)]}
+            f.write(f"""
+## {change['timestamp']}
 
 **File:** `{file_path}`
 **Status:** {status}
 
-")
+""")
         db.save_episode(f"Self-modified {Path(file_path).name}",
                         emotion="determination" if status == "success" else "concern",
-                        lesson=f"{chr(39) if status == chr(39) + chr(39) + chr(39) else chr(39)}Successfully{chr(39) if status == chr(39) + chr(39) + chr(39) else chr(39)} if status == chr(39) + chr(39) + chr(39) else chr(39)Failed to{chr(39) if status == chr(39) + chr(39) + chr(39) else chr(39)} modify own code")
+                        lesson=f"{'Successfully' if status == 'success' else 'Failed to'} modify own code")
 
     def get_change_history(self) -> List[Dict]:
         return self.change_log

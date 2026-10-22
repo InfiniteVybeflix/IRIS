@@ -306,3 +306,6 @@ Keep it concise but complete."""
 
 # Singleton
 nl2code = NL2CodeEngine()
+
+# Backwards-compat alias
+NL2Code = NL2CodeEngine
