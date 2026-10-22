@@ -6,18 +6,19 @@
       "use": "@vercel/python",
       "config": {
         "maxLambdaSize": "50mb",
-        "runtime": "python3.12"
+        "runtime": "python3.12",
+        "includeFiles": ["templates/**", "static/**", "agents/**", "core/**", "modules/**", "memory/**", "cortex/**", "senses/**", "tools/**", "persona/**", "skills/**", "api/**", "config/**"]
       }
     }
   ],
   "routes": [
     {
+      "src": "/static/(.*)",
+      "dest": "static/$1"
+    },
+    {
       "src": "/(.*)",
       "dest": "app.py"
     }
-  ],
-  "env": {
-    "PYTHONPATH": "/var/task",
-    "PORT": "5000"
-  }
+  ]
 }

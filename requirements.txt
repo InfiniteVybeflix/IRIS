@@ -1,91 +1,57 @@
-# IRIS v1 — Infinite Reactive Intelligence System
-# Complete Python Dependencies
+# IRIS v2 — Python Dependencies (Vercel-compatible)
+# Slimmed: removed torch, torchvision, torchaudio, transformers, spacy, stanza,
+# opencv, pyaudio, pyautogui, pdf2image, scipy — these are heavy ML/system deps
+# that don't work on Vercel serverless (no GPU, no display, no system libs).
+# They're still available locally — install full requirements.txt for local dev.
 
 # Core Framework
-Flask==3.0.0
-flask-cors==4.0.0
-flask-wtf==1.2.1
-Werkzeug==3.0.1
-gunicorn==21.2.0
+Flask>=3.0.0,<4.0
+flask-cors>=4.0.0,<5.0
+Werkzeug>=3.0.0,<4.0
+gunicorn>=21.2.0
 
 # Database
-SQLAlchemy==2.0.23
-psycopg2-binary==2.9.9
-APScheduler==3.10.4
+SQLAlchemy>=2.0.23,<3.0
+APScheduler>=3.10.4,<4.0
 
 # AI / LLM
-openai==1.3.0
-groq==0.9.0
-transformers==4.36.0
-torch==2.1.0
-torchvision==0.16.0
-torchaudio==2.1.0
-accelerate==0.25.0
-sentencepiece==0.1.99
-
-# Structured Output
-pydantic==2.5.0
+groq>=0.9.0
+pydantic>=2.5.0,<3.0
 
 # Environment
-python-dotenv==1.0.0
+python-dotenv>=1.0.0
 
 # Web Scraping & Search
-beautifulsoup4==4.12.2
-lxml==4.9.3
-duckduckgo-search==3.9.6
-requests==2.31.0
+beautifulsoup4>=4.12.0,<5.0
+lxml>=4.9.0,<6.0
+duckduckgo-search>=3.9.0
+requests>=2.31.0
 
 # GitHub Integration
-PyGithub==2.1.1
+PyGithub>=2.1.0,<3.0
 
-# Voice
-edge-tts==6.1.9
-SpeechRecognition==3.10.0
-pyaudio==0.2.14
-
-# Vision / Image
-Pillow==10.1.0
-opencv-python==4.8.1.78
-
-# Document Processing
-pdfplumber==0.10.0
-PyPDF2==3.0.0
-pdf2image==1.16.0
-pytesseract==0.3.10
-python-magic==0.4.27
+# Image (lightweight — Pillow only, no opencv)
+Pillow>=10.1.0,<12.0
 
 # Math & Science
-sympy==1.12
-numpy==1.26.2
-scipy==1.11.4
+sympy>=1.12
+numpy>=1.26.0,<3.0
 
 # Security
-bcrypt==4.1.2
-python-jose[cryptography]==3.3.0
-bleach==6.1.0
-
-# AST Tools
-astor==0.8.1
+bcrypt>=4.1.0,<5.0
+python-jose[cryptography]>=3.3.0,<4.0
+bleach>=6.1.0,<7.0
 
 # Utilities
-tqdm==4.66.1
-psutil==5.9.6
-pyautogui==0.9.54
+tqdm>=4.66.0
+psutil>=5.9.0,<7.0
 
 # Testing
-pytest==7.4.3
-httpx==0.25.2
+pytest>=7.4.0,<9.0
+httpx>=0.25.0
 
-# NLP
-spacy==3.7.2
-stanza==1.6.0
-deep-translator==1.11.0
+# Translation
+deep-translator>=1.11.0
 
-# Chess
-chess==1.10.0
-
-# Optional: Local model inference
-# llama-cpp-python
-# diffusers
-# huggingface-hub
-# safetensors
+# Chess (for chess_engine agent)
+chess>=1.10.0

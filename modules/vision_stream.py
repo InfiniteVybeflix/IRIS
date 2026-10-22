@@ -1,12 +1,27 @@
 """IRIS v1 Vision Stream — Screen & Camera Capture for Real-time Analysis"""
 import os
-import cv2
-import numpy as np
 import base64
 import threading
 import time
 from typing import Callable, Optional, Dict
 from config import config
+
+# Guard heavy imports — these require system libs (OpenCV needs libGL,
+# pyautogui needs a display). On serverless (Vercel), these aren't available.
+# The module still loads; methods that need cv2/pyautogui return clear errors.
+try:
+    import cv2
+    HAS_CV2 = True
+except ImportError:
+    cv2 = None
+    HAS_CV2 = False
+
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    np = None
+    HAS_NUMPY = False
 
 class VisionStream:
     """
@@ -31,6 +46,8 @@ class VisionStream:
 
     def capture_screen(self) -> Optional[str]:
         """Capture screen and return base64 encoded image."""
+        if not HAS_CV2 or not HAS_NUMPY:
+            return None  # cv2/numpy not available (serverless)
         try:
             import pyautogui
             screenshot = pyautogui.screenshot()
@@ -53,6 +70,8 @@ class VisionStream:
 
     def capture_camera(self, camera_id: int = 0) -> Optional[str]:
         """Capture from webcam and return base64 encoded image."""
+        if not HAS_CV2:
+            return None  # cv2 not available (serverless)
         try:
             cap = cv2.VideoCapture(camera_id)
             ret, frame = cap.read()
