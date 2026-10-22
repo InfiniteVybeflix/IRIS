@@ -136,6 +136,7 @@ from api.routes.image import image_bp
 from api.routes.gateway import gateway_bp
 from api.routes.system import system_bp
 from api.routes.intelligence import intelligence_bp
+from api.routes.settings import settings_bp
 
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL),
@@ -327,7 +328,7 @@ blueprints = [
     auth_bp, chat_bp, voice_bp, vision_bp, phone_bp, calendar_bp, notes_bp,
     math_bp, projects_bp, self_improve_bp, consciousness_bp, memory_bp,
     autonomous_bp, proactive_bp, mobile_bp, tools_bp, email_bp, news_bp,
-    sports_bp, image_bp, gateway_bp, system_bp, intelligence_bp,
+    sports_bp, image_bp, gateway_bp, system_bp, intelligence_bp, settings_bp,
 ]
 for bp in blueprints:
     app.register_blueprint(bp)
@@ -344,6 +345,11 @@ def health():
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/settings")
+def settings_page():
+    return render_template("settings.html")
 
 
 # ─── OMNIS API Endpoints ─────────────────────────────────────────────────

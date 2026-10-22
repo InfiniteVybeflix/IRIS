@@ -206,45 +206,125 @@ class GroqBackend(LLMBackend):
 
 
 class LLMRouter:
-    """Multi-provider LLM router."""
+    """Multi-provider LLM router.
+
+    Reads configuration from BOTH:
+    1. Environment variables (for serverless / CI / Docker)
+    2. Settings JSON file (for UI-configured keys)
+
+    Settings file takes priority over env vars. All keys are OPTIONAL —
+    IRIS works without any keys configured. The 'auto' backend probes
+    all configured backends and picks the first working one.
+    """
 
     def __init__(self):
         self._backends = {}
-        self._default_backend_name = os.environ.get("IRIS_LLM_BACKEND", "aevibron").lower()
         self._init_backends()
         self._default_model = os.environ.get("IRIS_LLM_MODEL", "")
         self._fast_model = os.environ.get("IRIS_LLM_FAST_MODEL", "")
         self._deep_model = os.environ.get("IRIS_LLM_DEEP_MODEL", "")
 
     def _init_backends(self):
-        # Aevibron
-        aev_url = os.environ.get("AEVIBRON_BASE_URL", "https://aevibron-gateway.vercel.app/api/v1")
-        aev_key = os.environ.get("AEVIBRON_API_KEY", "")
-        aev_token = os.environ.get("AEVIBRON_ACCESS_TOKEN", "")
-        aev_headers = {"X-IRIS-Token": aev_token} if aev_token else {}
+        # Try to read from settings_manager first, fall back to env vars
+        try:
+            from modules.settings_manager import get_all_config, get_llm_backend
+            self._settings = get_all_config()
+            self._default_backend_name = get_llm_backend() or "auto"
+        except ImportError:
+            self._settings = {}
+            self._default_backend_name = os.environ.get("IRIS_LLM_BACKEND", "auto").lower()
+
+        providers = self._settings.get("providers", {})
+
+        # ─── Aevibron ─────────────────────────────────────────────
+        aev_cfg = providers.get("aevibron", {})
+        aev_url = aev_cfg.get("url", "") or os.environ.get("AEVIBRON_BASE_URL", "https://aevibron-gateway.vercel.app/api/v1")
+        aev_key = aev_cfg.get("key", "") or os.environ.get("AEVIBRON_API_KEY", "")
+        aev_token = aev_cfg.get("x_aevibron_key", "") or os.environ.get("AEVIBRON_ACCESS_TOKEN", "")
+        aev_headers = {}
+        if aev_token:
+            aev_headers["X-Aevibron-Key"] = aev_token
         self._backends["aevibron"] = OpenAICompatBackend(
             base_url=aev_url, api_key=aev_key, name="aevibron", headers=aev_headers)
-        # Ollama
-        ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-        self._backends["ollama"] = OpenAICompatBackend(
-            base_url=f"{ollama_host}/v1", api_key="ollama", name="ollama")
-        # Groq
-        groq_key = os.environ.get("GROQ_API_KEY") or os.environ.get("GROQ_API_KEY_1", "")
+
+        # ─── Ollama local ────────────────────────────────────────
+        oll_local_cfg = providers.get("ollama_local", {})
+        ollama_host = oll_local_cfg.get("host", "") or os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+        self._backends["ollama_local"] = OpenAICompatBackend(
+            base_url=f"{ollama_host}/v1", api_key="ollama", name="ollama_local")
+
+        # ─── Ollama cloud ─────────────────────────────────────────
+        oll_cloud_cfg = providers.get("ollama_cloud", {})
+        if oll_cloud_cfg.get("url"):
+            self._backends["ollama_cloud"] = OpenAICompatBackend(
+                base_url=oll_cloud_cfg["url"], api_key=oll_cloud_cfg.get("key", "ollama"), name="ollama_cloud")
+
+        # ─── Groq ─────────────────────────────────────────────────
+        groq_cfg = providers.get("groq", {})
+        groq_key = groq_cfg.get("key", "") or os.environ.get("GROQ_API_KEY", "") or os.environ.get("GROQ_API_KEY_1", "")
         self._backends["groq"] = GroqBackend(
             api_key=groq_key,
             model=os.environ.get("IRIS_LLM_MODEL", "llama-3.3-70b-versatile"),
             fast_model=os.environ.get("IRIS_LLM_FAST_MODEL", "llama-3.1-8b-instant"))
-        # OpenAI-compat cloud
-        openai_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        openai_key = os.environ.get("OPENAI_API_KEY", "")
+
+        # ─── OpenAI ──────────────────────────────────────────────
+        oai_cfg = providers.get("openai", {})
+        openai_url = oai_cfg.get("url", "") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        openai_key = oai_cfg.get("key", "") or os.environ.get("OPENAI_API_KEY", "")
         self._backends["openai"] = OpenAICompatBackend(
             base_url=openai_url, api_key=openai_key, name="openai")
 
+        # ─── Custom ──────────────────────────────────────────────
+        custom_cfg = providers.get("custom", {})
+        if custom_cfg.get("url"):
+            self._backends["custom"] = OpenAICompatBackend(
+                base_url=custom_cfg["url"],
+                api_key=custom_cfg.get("key", ""),
+                model=custom_cfg.get("model", ""),
+                name="custom")
+
     def get_backend(self, name=None):
+        """Get a specific backend by name. If 'auto', probe all and pick first working."""
         name = (name or self._default_backend_name).lower()
+        if name == "auto":
+            return self._auto_select()
         if name not in self._backends:
-            raise ValueError(f"unknown backend: {name}")
+            raise ValueError(f"unknown backend: {name} (configured: {list(self._backends.keys())})")
         return self._backends[name]
+
+    def _auto_select(self) -> LLMBackend:
+        """Probe all configured backends and return the first working one.
+
+        Priority order (first working wins):
+        1. Aevibron (recommended)
+        2. Groq
+        3. OpenAI
+        4. Ollama local
+        5. Ollama cloud
+        6. Custom
+        """
+        priority = ["aevibron", "groq", "openai", "ollama_local", "ollama_cloud", "custom"]
+        for name in priority:
+            if name not in self._backends:
+                continue
+            backend = self._backends[name]
+            if self._is_configured(backend):
+                logger.info("[auto] selected backend: %s", name)
+                return backend
+        # No backend configured — return aevibron as default (will fail gracefully)
+        logger.warning("[auto] no configured backend found, defaulting to aevibron")
+        return self._backends.get("aevibron", OpenAICompatBackend("http://localhost:1", "", "", "aevibron"))
+
+    def _is_configured(self, backend: LLMBackend) -> bool:
+        """Check if a backend has the minimum required config."""
+        if isinstance(backend, GroqBackend):
+            return bool(backend.api_key)
+        if isinstance(backend, OpenAICompatBackend):
+            # Ollama local doesn't need a key
+            if backend.name in ("ollama_local",):
+                return True
+            return bool(backend.api_key) or bool(backend.default_model)
+        return False
 
     def list_backends(self):
         result = {}
