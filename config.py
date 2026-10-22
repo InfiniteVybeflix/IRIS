@@ -24,12 +24,13 @@ class Config:
     DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
     # ─── Database ───
-    DATABASE_URL = os.getenv(
-        "DATABASE_URL",
-        "postgresql://user:pass@localhost:5432/iris?sslmode=require&connect_timeout=15&pool_timeout=15&connection_limit=2"
-    )
-    LOCAL_DB_PATH = os.getenv("LOCAL_DB_PATH", "sqlite:///data/iris_v9.db")
-    USE_POSTGRES = "postgres" in DATABASE_URL.lower()
+    # DATABASE_URL: set this to your Supabase/PostgreSQL URL for cloud (Vercel).
+    # Leave empty for local SQLite (uses /tmp/iris.db on serverless, data/iris_v9.db locally).
+    DATABASE_URL = os.getenv("DATABASE_URL", "")
+    # Use Postgres ONLY if DATABASE_URL is explicitly set AND starts with postgres
+    USE_POSTGRES = bool(DATABASE_URL) and DATABASE_URL.lower().startswith("postgres")
+    # SQLite path: /tmp/ is writable on Vercel serverless; data/ for local dev
+    LOCAL_DB_PATH = os.getenv("LOCAL_DB_PATH", "/tmp/iris.db" if not USE_POSTGRES else "")
 
     # ─── Redis ───
     REDIS_URL = os.getenv("REDIS_URL", os.getenv("SWARM_REDIS_URL", ""))

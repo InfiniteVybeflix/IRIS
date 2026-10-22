@@ -10,19 +10,41 @@ from config import config
 logger = logging.getLogger(__name__)
 
 class Database:
-    """Production-grade database with Postgres (Vercel) + SQLite (local) support."""
+    """Production-grade database with Postgres (Vercel/Supabase) + SQLite (local) support.
+
+    Resilience: NEVER crashes at startup. If DB is unavailable, IRIS boots
+    with an in-memory SQLite (data lost on cold start, but IRIS works).
+    """
 
     def __init__(self):
         self.use_postgres = config.USE_POSTGRES
-        self.db_path = config.LOCAL_DB_PATH.replace("sqlite:///", "")
+        self.db_path = config.LOCAL_DB_PATH.replace("sqlite:///", "") if config.LOCAL_DB_PATH else "/tmp/iris.db"
         self.pg_conn = None
+        self._db_available = True
 
-        if self.use_postgres:
-            self._init_postgres()
-        else:
-            os.makedirs(os.path.dirname(self.db_path) if os.path.dirname(self.db_path) else ".", exist_ok=True)
+        try:
+            if self.use_postgres:
+                self._init_postgres()
+            else:
+                # Use /tmp/ for SQLite (writable on Vercel serverless)
+                if not self.db_path or self.db_path.startswith("data/"):
+                    self.db_path = "/tmp/iris.db"
+                # Ensure directory exists
+                db_dir = os.path.dirname(self.db_path)
+                if db_dir:
+                    os.makedirs(db_dir, exist_ok=True)
 
-        self._init_tables()
+            self._init_tables()
+        except Exception as e:
+            logger.warning(f"Database init failed: {e}. Using in-memory SQLite as fallback.")
+            self.use_postgres = False
+            self.db_path = ":memory:"
+            self._db_available = False
+            try:
+                self._init_tables()
+            except Exception as e2:
+                logger.error(f"Even in-memory SQLite failed: {e2}")
+                self._db_available = False
 
     def _init_postgres(self):
         try:

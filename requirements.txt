@@ -12,6 +12,7 @@ gunicorn>=21.2.0
 
 # Database
 SQLAlchemy>=2.0.23,<3.0
+psycopg2-binary>=2.9.9  # For PostgreSQL/Supabase — has pre-compiled wheels for Python 3.12
 APScheduler>=3.10.4,<4.0
 
 # AI / LLM
