@@ -57,7 +57,12 @@ class Config:
 
     # ─── Paths ───
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    DATA_DIR = os.path.join(BASE_DIR, "data")
+    # On Vercel/serverless, the filesystem is READ-ONLY except /tmp/.
+    # Vercel automatically sets VERCEL=1. When detected, redirect ALL data
+    # paths to /tmp/iris-data/ (writable, ephemeral — cleared on cold start).
+    # For persistent storage on Vercel, use DATABASE_URL (Supabase/PostgreSQL).
+    _IS_VERCEL = os.environ.get("VERCEL") is not None
+    DATA_DIR = "/tmp/iris-data" if _IS_VERCEL else os.path.join(BASE_DIR, "data")
     UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
     LEARNINGS_DIR = os.path.join(DATA_DIR, "iris_learnings")
     KNOWLEDGE_DIR = os.path.join(DATA_DIR, "iris_knowledge")

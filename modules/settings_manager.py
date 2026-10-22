@@ -17,13 +17,19 @@ from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Config file path — stored in IRIS data dir
-DATA_DIR = os.environ.get("IRIS_DATA_DIR",
-                           os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data"))
+# Config file path — stored in IRIS data dir (uses /tmp/ on Vercel)
+try:
+    from config import config
+    DATA_DIR = config.DATA_DIR
+except ImportError:
+    DATA_DIR = os.environ.get("IRIS_DATA_DIR", "/tmp/iris-data")
 CONFIG_FILE = os.path.join(DATA_DIR, "settings.json")
 
-# Ensure data dir exists
-os.makedirs(DATA_DIR, exist_ok=True)
+# Ensure data dir exists (may fail on read-only FS — that's OK)
+try:
+    os.makedirs(DATA_DIR, exist_ok=True)
+except OSError:
+    pass  # Read-only filesystem — settings will use in-memory fallback
 
 
 def _load_config() -> Dict[str, Any]:
