@@ -644,7 +644,14 @@ class ToolRegistry:
             # DB check
             try:
                 import sqlite3
-                conn = sqlite3.connect(config.DATABASE_URL.replace("sqlite:///", ""))
+                # Test actual database connectivity (PostgreSQL or SQLite)
+                from core.db import db
+                if db._db_available:
+                    if db.use_postgres:
+                        db._execute("SELECT 1")
+                    checks["database"] = {"ok": True, "message": "PostgreSQL connected"}
+                else:
+                    checks["database"] = {"ok": False, "message": "Database not available"}
                 conn.execute("SELECT 1")
                 conn.close()
                 checks["database"] = {"ok": True, "message": "Connected"}

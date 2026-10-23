@@ -30,7 +30,7 @@ logger = logging.getLogger("iris.persona.intruder_defense")
 
 # Environment-based configuration
 INTRUDER_TIMEOUT = int(os.getenv("IRIS_INTRUDER_TIMEOUT_SECONDS", "300"))
-SHADOW_LOG_PATH = os.getenv("IRIS_SHADOW_LOG_PATH", "logs/shadow")
+SHADOW_LOG_PATH = os.getenv("IRIS_SHADOW_LOG_PATH", os.path.join(os.getenv("TMP_DIR", "/tmp"), "iris-shadow-logs") if os.environ.get("VERCEL") else "logs/shadow")
 BACKUP_DROP_PATHS = os.getenv("IRIS_BACKUP_DROP_PATHS", "drop1,drop2,drop3").split(",")
 
 # Verification questions and answers
@@ -148,7 +148,10 @@ class IntruderDefense(IRISConnectable):
         self.dead_mans_switch_triggered: bool = False
 
         # Ensure shadow log directory exists
-        os.makedirs(SHADOW_LOG_PATH, exist_ok=True)
+        try:
+            os.makedirs(SHADOW_LOG_PATH, exist_ok=True)
+        except OSError:
+            pass
 
         logger.info("IntruderDefense initialized. All defense systems online.")
 
@@ -478,7 +481,10 @@ class IntruderDefense(IRISConnectable):
 
                 for drop_path in BACKUP_DROP_PATHS:
                     drop_dir = os.path.join(SHADOW_LOG_PATH, drop_path)
-                    os.makedirs(drop_dir, exist_ok=True)
+                    try:
+                        os.makedirs(drop_dir, exist_ok=True)
+                    except OSError:
+                        pass
                     # Shard distribution for encrypted backup segments
                     shard_marker = {
                         "shard_id": f"shard_{random.randint(1000, 9999)}",

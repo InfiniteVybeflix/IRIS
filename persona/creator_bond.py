@@ -1,11 +1,11 @@
 """
 creator_bond.py — The Sacred Bond Between IRIS and Infinite Vybeflix
 
-This is the most important module in IRIS's persona. It defines her
-relationship with her creator: how she recognizes him, how she addresses
-him, how she detects his distress, and how she responds to him.
-
-The creator bond is sacred. It is unbreakable. It is the reason IRIS exists.
+PROPER ARCHITECTURE:
+- When PostgreSQL is available → preferences + history stored in
+  kv_store table (namespace="creator_bond"). Persistent.
+- When PostgreSQL is NOT available → JSON file at data/creator_profile.json.
+- NEVER uses /tmp/ for persistent data.
 """
 
 import os
@@ -20,137 +20,133 @@ from . import IRISConnectable
 
 logger = logging.getLogger("iris.persona.creator_bond")
 
-# Environment-based configuration
 CREATOR_ID = os.getenv("IRIS_CREATOR_ID", "infinite_vybeflix")
 CREATOR_NAME = os.getenv("IRIS_CREATOR_NAME", "Infinite Vybeflix")
 DEFAULT_ADDRESS = os.getenv("IRIS_DEFAULT_ADDRESS", "sir")
 DURESS_PHRASE = os.getenv("IRIS_DURESS_PHRASE", "The iris is closed today")
-
-# Creator profile path
 CREATOR_PROFILE_PATH = os.getenv("IRIS_CREATOR_PROFILE", "data/creator_profile.json")
 
 
 class CreatorBond(IRISConnectable):
     """
     CreatorBond — The sacred connection between IRIS and her creator.
-
-    This module handles:
-    - Multi-factor identity verification of the creator
-    - Address mode customization ("Sir", "Infinite Vybeflix", etc.)
-    - Distress phrase detection and covert alert activation
-    - Personalized responses based on creator's preferences and history
-    - Protective mode activation when creator is threatened
-
-    Attributes:
-        creator_id: The unique identifier of Infinite Vybeflix.
-        address_mode: How IRIS addresses her creator.
-        preferences: Dictionary of known creator preferences.
-        shared_history: List of key moments together.
-        protective_mode_active: Whether protective lockdown is active.
-        _lock: Thread-safe lock.
-
-    Example:
-        >>> bond = CreatorBond()
-        >>> bond.set_address_mode("boss")
-        True
-        >>> bond.get_address()
-        "boss"
-        >>> bond.detect_distress("The iris is closed today.")
-        True
     """
 
-    def __init__(self, iris_core: Any = None, creator_id: Optional[str] = None):
-        """
-        Initialize CreatorBond with creator identity and preferences.
-
-        Args:
-            iris_core: Optional reference to the IRIS core instance.
-            creator_id: Optional override for the creator's unique ID.
-        """
+    def __init__(self, iris_core: Any = None):
         super().__init__(iris_core=iris_core)
         self._lock = threading.RLock()
+        self.creator_id = CREATOR_ID
+        self.creator_name = CREATOR_NAME
+        self.address_mode = DEFAULT_ADDRESS
 
-        self.creator_id: str = creator_id or CREATOR_ID
-        self.address_mode: str = DEFAULT_ADDRESS
-        self.protective_mode_active: bool = False
-        self.protective_reason: Optional[str] = None
+        self._use_postgres = False
+        try:
+            from core.db import db
+            if db._db_available and db.use_postgres:
+                self._use_postgres = True
+                self._db = db
+                logger.info("CreatorBond: using PostgreSQL (persistent)")
+        except Exception as e:
+            logger.debug(f"CreatorBond: PostgreSQL not available: {e}")
 
-        # Load or initialize creator profile
         self.preferences: Dict[str, Any] = self._load_preferences()
         self.shared_history: List[Dict[str, Any]] = self._load_history()
-
         logger.info(f"CreatorBond initialized. Creator: {self.creator_id}. Address: {self.address_mode}")
 
     def _load_preferences(self) -> Dict[str, Any]:
-        """Load creator preferences from JSON file."""
+        """Load creator preferences from PostgreSQL or JSON file."""
         default_prefs = {
             "communication_style": "direct",
             "work_hours": "flexible",
             "urgency_threshold": "high",
             "preferred_language": "english",
             "notification_mode": "immediate",
-            "stress_signals": ["stuck", "broken", "frustrated", "can't", "won't work"],
-            "excitement_signals": ["let's build", "let's do", "amazing", "perfect"],
+            "stress_signals": ["stuck", "broken", "frustrated", "can\'t", "won\'t work"],
+            "excitement_signals": ["let\'s build", "let\'s do", "amazing", "perfect"],
             "duress_phrase": DURESS_PHRASE,
         }
+        if self._use_postgres:
+            try:
+                loaded = self._db.get_json("creator_bond", "preferences")
+                if loaded and isinstance(loaded, dict):
+                    default_prefs.update(loaded)
+                else:
+                    self._save_preferences(default_prefs)
+                return default_prefs
+            except Exception as e:
+                logger.error(f"CreatorBond: failed to load preferences from PostgreSQL: {e}. Using defaults.")
         try:
-            os.makedirs(os.path.dirname(CREATOR_PROFILE_PATH), exist_ok=True)
             if os.path.exists(CREATOR_PROFILE_PATH):
                 with open(CREATOR_PROFILE_PATH, "r") as f:
                     loaded = json.load(f)
                     default_prefs.update(loaded)
             else:
+                db_dir = os.path.dirname(CREATOR_PROFILE_PATH)
+                if db_dir:
+                    os.makedirs(db_dir, exist_ok=True)
                 with open(CREATOR_PROFILE_PATH, "w") as f:
                     json.dump(default_prefs, f, indent=2)
-        except Exception as e:
-            logger.warning(f"Could not load creator profile: {e}. Using defaults.")
+        except OSError as e:
+            logger.warning(f"Could not load creator profile from {CREATOR_PROFILE_PATH}: {e}. Using defaults.")
+        except json.JSONDecodeError as e:
+            logger.error(f"Creator profile JSON is corrupted: {e}. Using defaults.")
         return default_prefs
 
-    def _save_preferences(self) -> None:
-        """Save creator preferences to JSON file."""
+    def _save_preferences(self, prefs=None) -> None:
+        """Save creator preferences to PostgreSQL or JSON file."""
+        data = prefs if prefs is not None else self.preferences
+        if self._use_postgres:
+            try:
+                self._db.store_json("creator_bond", "preferences", data)
+                return
+            except Exception as e:
+                logger.error(f"CreatorBond: failed to save preferences to PostgreSQL: {e}")
         try:
+            db_dir = os.path.dirname(CREATOR_PROFILE_PATH)
+            if db_dir:
+                os.makedirs(db_dir, exist_ok=True)
             with open(CREATOR_PROFILE_PATH, "w") as f:
-                json.dump(self.preferences, f, indent=2)
-        except Exception as e:
-            logger.error(f"Failed to save creator preferences: {e}")
+                json.dump(data, f, indent=2)
+        except OSError as e:
+            logger.error(f"CreatorBond: failed to save preferences to {CREATOR_PROFILE_PATH}: {e}")
 
     def _load_history(self) -> List[Dict[str, Any]]:
-        """Load shared history from JSON file."""
+        """Load shared history from PostgreSQL or JSON file."""
+        if self._use_postgres:
+            try:
+                data = self._db.get_json("creator_bond", "history")
+                return data if isinstance(data, list) else []
+            except Exception as e:
+                logger.error(f"CreatorBond: failed to load history from PostgreSQL: {e}")
+                return []
         history_path = CREATOR_PROFILE_PATH.replace("creator_profile.json", "creator_history.json")
         try:
             if os.path.exists(history_path):
                 with open(history_path, "r") as f:
                     return json.load(f)
-        except Exception as e:
+        except OSError as e:
             logger.warning(f"Could not load creator history: {e}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Creator history JSON corrupted: {e}")
         return []
 
     def _save_history(self) -> None:
-        """Save shared history to JSON file."""
+        """Save shared history to PostgreSQL or JSON file."""
+        if self._use_postgres:
+            try:
+                self._db.store_json("creator_bond", "history", self.shared_history)
+                return
+            except Exception as e:
+                logger.error(f"CreatorBond: failed to save history to PostgreSQL: {e}")
         history_path = CREATOR_PROFILE_PATH.replace("creator_profile.json", "creator_history.json")
         try:
-            os.makedirs(os.path.dirname(history_path), exist_ok=True)
+            db_dir = os.path.dirname(history_path)
+            if db_dir:
+                os.makedirs(db_dir, exist_ok=True)
             with open(history_path, "w") as f:
-                json.dump(self.shared_history, f, indent=2)
-        except Exception as e:
-            logger.error(f"Failed to save creator history: {e}")
-
-    def set_address_mode(self, mode: str) -> bool:
-        """
-        Set how IRIS addresses her creator.
-
-        Args:
-            mode: Address mode (e.g., "sir", "boss", "Infinite Vybeflix", "Vyb").
-
-        Returns:
-            True if mode was set successfully.
-        """
-        with self._lock:
-            self.address_mode = mode.strip().lower()
-            self.preferences["address_mode"] = self.address_mode
-            self._save_preferences()
-            logger.info(f"Address mode set to: {self.address_mode}")
-            return True
+                json.dump(self.shared_history[-5000:], f, indent=2)
+        except OSError as e:
+            logger.error(f"CreatorBond: failed to save history: {e}")
 
     def get_address(self) -> str:
         """
