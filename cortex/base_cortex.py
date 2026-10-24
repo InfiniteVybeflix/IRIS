@@ -95,12 +95,18 @@ class BaseCortex(IRISConnectable, ABC):
         super().__init__(iris_core=iris_core)
         self._module_name = self.__class__.__name__
         self._use_postgres = False
+        # CRITICAL: Always initialize _conn to None so subclasses that
+        # check `if self._conn:` don't crash with AttributeError when
+        # PostgreSQL mode is active (where _conn is never assigned).
+        self._conn: Optional[sqlite3.Connection] = None
+        self.db_path: str = ""
 
         try:
             from core.db import db
             if db._db_available and db.use_postgres:
                 self._use_postgres = True
                 self._db = db
+                self.db_path = "postgresql"
                 logger.info(f"BaseCortex [{self._module_name}]: using PostgreSQL (persistent)")
         except Exception:
             pass
@@ -110,11 +116,10 @@ class BaseCortex(IRISConnectable, ABC):
             if not os.path.isabs(raw_path) and os.environ.get("VERCEL"):
                 raw_path = os.path.join("/tmp/iris-data", raw_path)
             self.db_path = raw_path
-            self._conn: Optional[sqlite3.Connection] = None
+            # _init_storage() will overwrite self._conn with a real
+            # sqlite3.Connection if the file system is writable.
             self._init_storage()
             logger.info(f"BaseCortex [{self._module_name}]: using SQLite at {self.db_path}")
-        else:
-            self.db_path = "postgresql"
 
         self.status = "ready"
 
