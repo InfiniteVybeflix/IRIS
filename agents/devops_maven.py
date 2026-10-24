@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from base_agent import BaseAgent, Task, TaskResult
+from core.base_agent import BaseAgent, Task, TaskResult
 
 
 class PIPE(BaseAgent):

@@ -34,7 +34,11 @@ def chat():
 
     results = []
     final = None
-    for update in orchestrator.process(user_input, session_id, proactive_context=proactive_context):
+    # NOTE: orchestrator.process() accepts (user_input, session_id) only.
+    # The proactive context summary is recorded above via
+    # proactive_engine.record_interaction/get_context_summary and is
+    # gathered internally by the orchestrator's OBSERVE phase.
+    for update in orchestrator.process(user_input, session_id):
         if update.get("final"):
             final = update
         else:

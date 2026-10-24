@@ -11,6 +11,17 @@ def vision_capture():
     frame = vision_stream.capture_screen() if source == 'screen' else vision_stream.capture_camera()
     return jsonify({"success": frame is not None, "frame": frame})
 
+@vision_bp.route('/frame', methods=['GET'])
+def vision_frame():
+    """Return the most recent frame captured by the running stream.
+
+    The frontend polls this endpoint while a stream is active, so the
+    vision feed shows real frames captured by the IRIS vision module
+    (no client-side simulation).
+    """
+    frame = vision_stream.get_last_frame_base64()
+    return jsonify({"success": frame is not None, "frame": frame})
+
 @vision_bp.route('/stream/start', methods=['POST'])
 def vision_stream_start():
     data = request.get_json() or {}

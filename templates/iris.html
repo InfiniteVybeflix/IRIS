@@ -27,6 +27,11 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                     Chat
                 </a>
+                <a href="#" class="nav-item" data-section="agents">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9 2.83 2.83M1 12h4m14 0h4M4.22 19.78l2.83-2.83m9.9-9.9 2.83-2.83"/></svg>
+                    Agents
+                    <span class="nav-badge" id="agents-badge" title="Working agents">0</span>
+                </a>
                 <a href="#" class="nav-item" data-section="calendar">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                     Calendar
@@ -58,10 +63,10 @@
             </nav>
             <div class="sidebar-footer">
                 <div class="iris-status">
-                    <div class="status-dot online"></div>
-                    <span>IRIS Online</span>
+                    <div class="status-dot" id="status-dot"></div>
+                    <span id="status-text">Connecting…</span>
                 </div>
-                <div class="emotion" id="emotion-display">neutral</div>
+                <div class="emotion" id="emotion-display">—</div>
             </div>
         </aside>
 
@@ -71,11 +76,11 @@
             <header class="header">
                 <h1 id="page-title">Chat with IRIS</h1>
                 <div class="header-actions">
+                    <a class="btn-icon" href="/settings" title="Full Settings (provider config, integrations)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    </a>
                     <button class="btn-icon" id="voice-btn" title="Voice Mode">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-                    </button>
-                    <button class="btn-icon" id="wake-word-btn" title="Wake Word">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
                     </button>
                 </div>
             </header>
@@ -83,31 +88,15 @@
             <!-- Chat Section -->
             <section class="section active" id="chat-section">
                 <div class="chat-container">
-                    <div class="messages" id="messages">
-                        <div class="message assistant">
-                            <div class="message-avatar">I</div>
-                            <div class="message-content">
-                                <p>Hello Infinite! I am IRIS, your personal AI software engineering partner. I can help you build anything, manage your calendar, take notes, control your phone, and much more. What would you like to do today?</p>
-                                <span class="message-time">Now</span>
-                            </div>
-                        </div>
-                    </div>
+                    <div class="messages" id="messages"></div>
                     <div class="chat-input-area">
                         <div class="input-wrapper">
                             <textarea id="chat-input" placeholder="Ask IRIS anything..." rows="1"></textarea>
-                            <button class="send-btn" id="send-btn">
+                            <button class="send-btn" id="send-btn" title="Send">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                             </button>
                         </div>
                         <div class="input-actions">
-                            <button class="action-btn" id="screen-share-btn">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                                Screen
-                            </button>
-                            <button class="action-btn" id="camera-btn">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                                Camera
-                            </button>
                             <button class="action-btn" id="file-btn">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
                                 File
@@ -117,17 +106,62 @@
                 </div>
             </section>
 
+            <!-- Agents Section -->
+            <section class="section" id="agents-section">
+                <div class="section-header">
+                    <h2>Agent Workspace</h2>
+                    <div class="agents-stats" id="agents-stats"></div>
+                </div>
+
+                <div class="agents-layout">
+                    <!-- Agent Roster -->
+                    <div class="agents-roster">
+                        <div class="roster-header">
+                            <h3>Agent Roster</h3>
+                            <input type="text" id="agent-search" class="agent-search" placeholder="Filter agents…">
+                        </div>
+                        <div class="agent-grid" id="agent-grid">
+                            <div class="empty-state">Loading agents from OMNIS registry…</div>
+                        </div>
+                    </div>
+
+                    <!-- Live Activity -->
+                    <div class="agents-activity">
+                        <div class="roster-header">
+                            <h3>Live Activity</h3>
+                            <button class="btn-secondary btn-sm" id="activity-refresh">Refresh</button>
+                        </div>
+                        <div class="activity-meta" id="activity-meta">Waiting for OMNIS status…</div>
+                        <div class="activity-log" id="activity-log">
+                            <div class="empty-state">No executions yet. Delegate a task to an agent to begin.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Working Agents: tab windows -->
+                <div class="workspace">
+                    <div class="workspace-header">
+                        <h3>Working Agents</h3>
+                        <span class="workspace-hint">Each delegated agent opens its own window. Switch tabs to monitor each one.</span>
+                    </div>
+                    <div class="tab-bar" id="agent-tab-bar">
+                        <div class="tab-empty" id="tab-empty">No agents working yet. Pick an agent from the roster and delegate a task.</div>
+                    </div>
+                    <div class="tab-panels" id="agent-tab-panels"></div>
+                </div>
+            </section>
+
             <!-- Calendar Section -->
             <section class="section" id="calendar-section">
                 <div class="section-header">
                     <h2>Aevibron Calendar</h2>
-                    <button class="btn-primary" id="add-event-btn">+ Add Event</button>
-                </div>
-                <div class="calendar-grid" id="calendar-grid">
-                    <!-- Calendar will be rendered by JS -->
+                    <div style="display:flex;gap:12px">
+                        <button class="btn-secondary" id="calendar-refresh">Refresh</button>
+                        <button class="btn-primary" id="add-event-btn">+ Add Event</button>
+                    </div>
                 </div>
                 <div class="events-list" id="events-list">
-                    <!-- Events will be loaded by JS -->
+                    <div class="empty-state">Loading today's events…</div>
                 </div>
             </section>
 
@@ -135,10 +169,13 @@
             <section class="section" id="notes-section">
                 <div class="section-header">
                     <h2>Aevibron Notes</h2>
-                    <button class="btn-primary" id="add-note-btn">+ New Note</button>
+                    <div style="display:flex;gap:12px">
+                        <button class="btn-secondary" id="notes-refresh">Refresh</button>
+                        <button class="btn-primary" id="add-note-btn">+ New Note</button>
+                    </div>
                 </div>
                 <div class="notes-grid" id="notes-grid">
-                    <!-- Notes will be loaded by JS -->
+                    <div class="empty-state">Loading notes…</div>
                 </div>
             </section>
 
@@ -146,6 +183,7 @@
             <section class="section" id="projects-section">
                 <div class="section-header">
                     <h2>Project Generator</h2>
+                    <button class="btn-secondary" id="projects-refresh">Refresh</button>
                 </div>
                 <div class="project-form">
                     <input type="text" id="project-name" placeholder="Project name">
@@ -158,7 +196,7 @@
                     <button class="btn-primary" id="generate-project-btn">Generate Project</button>
                 </div>
                 <div class="projects-list" id="projects-list">
-                    <!-- Projects will be loaded by JS -->
+                    <div class="empty-state">Loading projects…</div>
                 </div>
             </section>
 
@@ -166,6 +204,7 @@
             <section class="section" id="phone-section">
                 <div class="section-header">
                     <h2>Phone Control</h2>
+                    <span class="workspace-hint" id="phone-bridge-state">Checking ADB bridge…</span>
                 </div>
                 <div class="phone-controls">
                     <div class="phone-card">
@@ -179,11 +218,11 @@
                     </div>
                     <div class="phone-card">
                         <h3>Battery</h3>
-                        <div class="battery-info" id="battery-info">Checking...</div>
+                        <div class="battery-info" id="battery-info">Checking…</div>
                     </div>
                     <div class="phone-card">
                         <h3>Contacts</h3>
-                        <input type="text" id="contact-search" placeholder="Search contacts...">
+                        <input type="text" id="contact-search" class="agent-search" placeholder="Search contacts…">
                         <div class="contacts-list" id="contacts-list"></div>
                     </div>
                     <div class="phone-card">
@@ -197,17 +236,19 @@
             <section class="section" id="vision-section">
                 <div class="section-header">
                     <h2>Vision Stream</h2>
-                </div>
-                <div class="vision-container">
-                    <div class="vision-feed" id="vision-feed">
-                        <div class="vision-placeholder">Click Start to begin vision stream</div>
-                    </div>
                     <div class="vision-controls">
                         <button class="btn-primary" id="start-vision-btn">Start Stream</button>
                         <button class="btn-secondary" id="stop-vision-btn">Stop</button>
                         <button class="btn-secondary" id="analyze-vision-btn">Analyze</button>
                     </div>
-                    <div class="vision-analysis" id="vision-analysis"></div>
+                </div>
+                <div class="vision-container">
+                    <div class="vision-feed" id="vision-feed">
+                        <div class="vision-placeholder">Click Start to begin the live vision stream. Frames are captured by the IRIS vision module and polled from the server.</div>
+                    </div>
+                    <div class="vision-analysis" id="vision-analysis">
+                        <span class="text-muted">Analysis output will appear here after you click Analyze.</span>
+                    </div>
                 </div>
             </section>
 
@@ -235,43 +276,31 @@
             <section class="section" id="settings-section">
                 <div class="section-header">
                     <h2>Settings</h2>
+                    <a class="btn-primary" href="/settings" style="text-decoration:none">Open Full Settings</a>
                 </div>
                 <div class="settings-grid">
                     <div class="setting-card">
                         <h3>IRIS Status</h3>
-                        <div class="setting-item">
-                            <span>Uptime</span>
-                            <span id="setting-uptime">--</span>
-                        </div>
-                        <div class="setting-item">
-                            <span>Emotion</span>
-                            <span id="setting-emotion">--</span>
-                        </div>
-                        <div class="setting-item">
-                            <span>Awareness</span>
-                            <span id="setting-awareness">--</span>
-                        </div>
+                        <div class="setting-item"><span>Uptime</span><span id="setting-uptime">--</span></div>
+                        <div class="setting-item"><span>Emotion</span><span id="setting-emotion">--</span></div>
+                        <div class="setting-item"><span>Awareness</span><span id="setting-awareness">--</span></div>
+                        <div class="setting-item"><span>Database</span><span id="setting-db">--</span></div>
                     </div>
                     <div class="setting-card">
                         <h3>Autonomous Worker</h3>
-                        <div class="setting-item">
-                            <span>Status</span>
-                            <span id="autonomous-status">--</span>
-                        </div>
-                        <div class="setting-item">
-                            <span>Queue Size</span>
-                            <span id="queue-size">--</span>
-                        </div>
+                        <div class="setting-item"><span>Status</span><span id="autonomous-status">--</span></div>
+                        <div class="setting-item"><span>Queue Size</span><span id="queue-size">--</span></div>
+                        <div class="setting-item"><span>Scheduled Tasks</span><span id="scheduled-tasks">--</span></div>
                     </div>
                     <div class="setting-card">
                         <h3>Self-Improvement</h3>
                         <button class="btn-secondary" id="analyze-self-btn">Analyze Codebase</button>
-                        <div id="self-analysis-result"></div>
+                        <div id="self-analysis-result" class="code-output"></div>
                     </div>
                     <div class="setting-card">
                         <h3>Consciousness</h3>
                         <button class="btn-secondary" id="reflect-btn">Reflect</button>
-                        <div id="reflection-result"></div>
+                        <div id="reflection-result" class="code-output"></div>
                     </div>
                 </div>
             </section>
@@ -296,8 +325,23 @@
                 <div class="wave-bar"></div>
                 <div class="wave-bar"></div>
             </div>
+            <button class="btn-secondary" id="voice-close-btn">Close</button>
         </div>
     </div>
+
+    <!-- Modal (event / note / delegate forms) -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal" id="modal">
+            <div class="modal-header">
+                <h3 id="modal-title">Title</h3>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
+        </div>
+    </div>
+
+    <!-- Toasts -->
+    <div class="toast-stack" id="toast-stack"></div>
 
     <script src="{{ url_for('static', filename='js/iris.js') }}"></script>
 </body>

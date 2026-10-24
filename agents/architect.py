@@ -17,7 +17,7 @@ import textwrap
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from base_agent import BaseAgent, Task, TaskResult
+from core.base_agent import BaseAgent, Task, TaskResult
 
 
 class VAULT(BaseAgent):

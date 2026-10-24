@@ -344,7 +344,9 @@ def health():
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    # Renders templates/iris.html (the main IRIS interface).
+    # The template file is named iris.html, not index.html.
+    return render_template("iris.html")
 
 
 @app.route("/settings")
@@ -395,16 +397,66 @@ def omnis_status():
 
 @app.route("/api/omnis/agents", methods=["GET"])
 def omnis_agents():
-    return jsonify({"success": True, "agents": list(iris.omnis._agent_map.keys()), "count": len(iris.omnis._agent_map)})
+    # Return the real registry: each agent with its actual specialties
+    # from the OMNIS agent map, plus a real capability probe — the agent
+    # module is actually loaded (and cached by OMNIS) and inspected for a
+    # delegation interface (execute/handle_task/process/run).
+    agents = []
+    for name, info in iris.omnis._agent_map.items():
+        specs = info.get("specialties", []) if isinstance(info, dict) else []
+        entry = {"name": name, "specialties": specs, "delegatable": False}
+        try:
+            agent_obj = iris.omnis._get_agent(name)
+            if agent_obj is not None:
+                entry["delegatable"] = any(
+                    hasattr(agent_obj, m) for m in ("execute", "handle_task", "process", "run")
+                )
+                entry["class"] = type(agent_obj).__name__
+        except Exception:
+            pass
+        agents.append(entry)
+    return jsonify({"success": True, "agents": agents, "count": len(agents)})
 
 @app.route("/api/omnis/delegate", methods=["POST"])
 def omnis_delegate():
     data = request.get_json() or {}
     agent_name = data.get("agent", "")
-    task = data.get("task", {})
+    task_spec = data.get("task", {})
     if not agent_name:
         return jsonify({"success": False, "error": "Missing 'agent' field"}), 400
-    return jsonify(iris.omnis.delegate(agent_name, task))
+
+    # BaseAgent-based agents require a real Task object (they set
+    # task.status / task.started_at during execution). Build one from the
+    # request so delegation works end-to-end.
+    from core.base_agent import Task
+
+    if isinstance(task_spec, str):
+        task_spec = {"description": task_spec, "request": task_spec}
+    elif not isinstance(task_spec, dict):
+        task_spec = {"description": str(task_spec), "request": str(task_spec)}
+
+    description = (
+        task_spec.get("description")
+        or task_spec.get("request")
+        or (task_spec.get("original_request") if isinstance(task_spec, dict) else "")
+        or ""
+    )
+    payload = dict(task_spec)
+    payload["original_request"] = task_spec.get("request") or description
+
+    task_obj = Task(agent_name=agent_name, description=description, payload=payload)
+    response = iris.omnis.delegate(agent_name, task_obj)
+
+    # Agent outputs may contain TaskResult or other rich objects —
+    # serialize anything with to_dict(), stringify the rest.
+    def _default(o):
+        if hasattr(o, "to_dict"):
+            return o.to_dict()
+        return str(o)
+
+    import json as _json
+    from flask import Response as _Response
+    return _Response(_json.dumps(response, default=_default), mimetype="application/json")
 
 @app.route("/api/omnis/manifest", methods=["GET"])
 def omnis_manifest():

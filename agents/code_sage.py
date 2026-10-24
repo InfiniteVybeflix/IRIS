@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from base_agent import BaseAgent, Task, TaskResult
+from core.base_agent import BaseAgent, Task, TaskResult
 
 
 class SCRIPT(BaseAgent):
@@ -444,13 +444,13 @@ main() {{
 main "$@"\n""".format()
 
     def _suggest_filename(self, description: str, language: str) -> str:
-        ext_map = {{
+        ext_map = {
             "python": ".py", "javascript": ".js", "typescript": ".ts",
             "java": ".java", "go": ".go", "rust": ".rs", "c++": ".cpp",
             "c": ".c", "c#": ".cs", "ruby": ".rb", "php": ".php",
             "swift": ".swift", "kotlin": ".kt", "sql": ".sql",
             "bash": ".sh", "powershell": ".ps1", "lua": ".lua",
-        }}
+        }
         ext = ext_map.get(language, ".txt")
         words = re.findall(r'[A-Za-z]+', description)
         if words:
@@ -466,7 +466,7 @@ main "$@"\n""".format()
         language = payload.get("language", self._detect_language(code))
         issues = []
 
-        security_patterns = {{
+        security_patterns = {
             "python": [
                 (r'eval\s*\(', "CRITICAL: Use of eval() is dangerous"),
                 (r'exec\s*\(', "CRITICAL: Use of exec() is dangerous"),
@@ -486,20 +486,20 @@ main "$@"\n""".format()
             "general": [
                 (r'TODO|FIXME|HACK|XXX|BUG', "LOW: Code contains markers"),
             ],
-        }}
+        }
 
         patterns = security_patterns.get(language, security_patterns["general"])
         patterns.extend(security_patterns["general"])
 
         for pattern, message in patterns:
             if re.search(pattern, code, re.IGNORECASE):
-                issues.append({{"severity": message.split(":")[0], "message": message, "type": "security"}})
+                issues.append({"severity": message.split(":")[0], "message": message, "type": "security"})
 
         if language == "python":
             try:
                 ast.parse(code)
             except SyntaxError as e:
-                issues.append({{"severity": "CRITICAL", "message": f"Syntax error: {e}", "type": "syntax"}})
+                issues.append({"severity": "CRITICAL", "message": f"Syntax error: {e}", "type": "syntax"})
 
         seen = set()
         unique_issues = []
@@ -509,7 +509,7 @@ main "$@"\n""".format()
                 seen.add(key)
                 unique_issues.append(issue)
 
-        return {{
+        return {
             "language": language,
             "total_issues": len(unique_issues),
             "critical": len([i for i in unique_issues if i["severity"] == "CRITICAL"]),
@@ -525,7 +525,7 @@ main "$@"\n""".format()
                 "Implement proper error handling and logging",
                 "Add unit tests for all critical paths",
             ],
-        }}
+        }
 
     def refactor_code(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         code = payload.get("code", "")
@@ -537,7 +537,7 @@ main "$@"\n""".format()
             if re.search(r'for\s+\w+\s+in\s+range\s*\(\s*len\s*\(', refactored):
                 changes.append("Consider replacing range(len()) with enumerate()")
 
-        return {{
+        return {
             "original": code,
             "refactored": refactored,
             "language": language,
@@ -547,17 +547,17 @@ main "$@"\n""".format()
                 "Break down large functions into smaller ones",
                 "Use dependency injection for testability",
             ],
-        }}
+        }
 
     def debug_code(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         code = payload.get("code", "")
         error = payload.get("error", "")
-        analysis = {{
+        analysis = {
             "error_type": "",
             "root_cause": "",
             "suggested_fix": "",
             "prevention": [],
-        }}
+        }
 
         if "NameError" in error or ("name" in error.lower() and "not defined" in error.lower()):
             analysis["error_type"] = "NameError"
@@ -608,13 +608,13 @@ main "$@"\n""".format()
         else:
             tests = f"# Test generation for {language} not yet implemented."
 
-        return {{
+        return {
             "language": language,
             "test_framework": "pytest" if language == "python" else "jest",
             "tests": tests,
             "coverage_target": "80%",
             "test_types": ["unit", "integration", "edge_cases"],
-        }}
+        }
 
     def _generate_python_tests(self, code: str) -> str:
         classes = re.findall(r'class\s+(\w+)', code)
@@ -678,8 +678,8 @@ main "$@"\n""".format()
         project_type = payload.get("project_type", "python")
         project_name = payload.get("project_name", "aevibron-project")
 
-        structures = {{
-            "python": {{
+        structures = {
+            "python": {
                 f"{project_name}/": "",
                 f"{project_name}/src/": "",
                 f"{project_name}/src/__init__.py": "",
@@ -693,20 +693,20 @@ main "$@"\n""".format()
                 f"{project_name}/pyproject.toml": "[build-system]\nrequires = ['setuptools', 'wheel']\n",
                 f"{project_name}/.gitignore": "__pycache__/\n*.pyc\n.env\n.venv/\n",
                 f"{project_name}/Makefile": "test:\n\tpytest tests/\n\nlint:\n\tblack src/ tests/\n\tflake8 src/ tests/\n",
-            }},
-            "javascript": {{
+            },
+            "javascript": {
                 f"{project_name}/": "",
                 f"{project_name}/src/": "",
                 f"{project_name}/src/index.js": "console.log('Hello, Aevibron!');\n",
                 f"{project_name}/tests/": "",
-                f"{project_name}/tests/index.test.js": "test('basic', () => {{ expect(true).toBe(true); }});\n",
-                f"{project_name}/package.json": '{{"name": "' + project_name + '", "version": "1.0.0", "scripts": {{"test": "jest"}}}}',
+                f"{project_name}/tests/index.test.js": "test('basic', () => { expect(true).toBe(true); });\n",
+                f"{project_name}/package.json": '{"name": "' + project_name + '", "version": "1.0.0", "scripts": {"test": "jest"}}',
                 f"{project_name}/README.md": f"# {project_name}\n\nGenerated by SCRIPT -- Aevibron Agent Corps\n",
                 f"{project_name}/.gitignore": "node_modules/\n.env\ndist/\n",
-            }},
-        }}
+            },
+        }
 
-        return {{
+        return {
             "project_name": project_name,
             "project_type": project_type,
             "structure": structures.get(project_type, structures["python"]),
@@ -716,7 +716,7 @@ main "$@"\n""".format()
                 "Run tests to verify setup",
                 "Start developing",
             ],
-        }}
+        }
 
     def generate_documentation(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         code = payload.get("code", "")
@@ -726,23 +726,23 @@ main "$@"\n""".format()
         if language == "python":
             classes = re.findall(r'''class\s+(\w+)(?:\([^)]*\))?:\s*\n\s*"""([^"""]*)"""''', code, re.DOTALL)
             for cls_name, cls_doc in classes:
-                docs.append({{"type": "class", "name": cls_name, "docstring": cls_doc.strip()}})
+                docs.append({"type": "class", "name": cls_name, "docstring": cls_doc.strip()})
             funcs = re.findall(r'''def\s+(\w+)\s*\([^)]*\)(?:\s*->\s*\w+)?\s*:\s*\n\s*"""([^"""]*)"""''', code, re.DOTALL)
             for func_name, func_doc in funcs:
-                docs.append({{"type": "function", "name": func_name, "docstring": func_doc.strip()}})
+                docs.append({"type": "function", "name": func_name, "docstring": func_doc.strip()})
 
         readme = f"# Project Documentation\n\nGenerated by SCRIPT -- Aevibron Agent Corps\n\n## API Reference\n\n"
         for doc in docs:
             readme += f"### {doc['name']}\n\n{doc['docstring']}\n\n"
 
-        return {{"readme": readme, "api_reference": docs, "language": language}}
+        return {"readme": readme, "api_reference": docs, "language": language}
 
     def generate_cicd(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return {{
+        return {
             "github_actions": "name: CI/CD\non: [push, pull_request]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-python@v5\n        with: { python-version: '3.11' }\n      - run: pip install -r requirements.txt\n      - run: pytest --cov=src",
             "gitlab_ci": "stages: [test, build, deploy]\n\ntest:\n  stage: test\n  image: python:3.11\n  script:\n    - pip install -r requirements.txt\n    - pytest",
-            "jenkins": "pipeline {{\n    agent any\n    stages {{\n        stage('Test') {{\n            steps {{\n                sh 'pip install -r requirements.txt && pytest'\n            }}\n        }}\n    }}\n}}",
-        }}
+            "jenkins": "pipeline {\n    agent any\n    stages {\n        stage('Test') {\n            steps {\n                sh 'pip install -r requirements.txt && pytest'\n            }\n        }\n    }\n}",
+        }
 
 
 __all__ = ["SCRIPT"]

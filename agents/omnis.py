@@ -401,6 +401,28 @@ class OMNIS:
                 agent = getattr(module, class_name)()
                 self._agent_cache[agent_name] = agent
                 return agent
+
+            # Preferred resolution: the real agent class is a BaseAgent
+            # subclass. Resolve those FIRST — the generic loop below would
+            # otherwise instantiate arbitrary imported classes (e.g.
+            # pathlib.Path) that happen to be sortable earlier in dir().
+            try:
+                from core.base_agent import BaseAgent as _BaseAgent
+            except Exception:
+                _BaseAgent = None
+            if _BaseAgent is not None:
+                for attr_name in dir(module):
+                    attr = getattr(module, attr_name)
+                    if (isinstance(attr, type) and issubclass(attr, _BaseAgent)
+                            and attr is not _BaseAgent
+                            and not getattr(attr, "__abstractmethods__", None)):
+                        try:
+                            agent = attr()
+                            self._agent_cache[agent_name] = agent
+                            return agent
+                        except Exception:
+                            continue
+
             for attr_name in dir(module):
                 attr = getattr(module, attr_name)
                 if isinstance(attr, type) and attr_name != "BaseSkill":
