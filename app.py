@@ -24,11 +24,12 @@ OMNIS Integration:
 
 import os
 import sys
+import json
 import logging
 import threading
 from datetime import datetime
 from typing import Any, Dict, Optional
-from flask import Flask, request, jsonify, render_template, session, Response, g
+from flask import Flask, request, jsonify, render_template, session, Response, g, redirect, send_from_directory
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -137,6 +138,7 @@ from api.routes.gateway import gateway_bp
 from api.routes.system import system_bp
 from api.routes.intelligence import intelligence_bp
 from api.routes.settings import settings_bp
+from api.routes.scripts import scripts_bp
 
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL),
@@ -329,6 +331,7 @@ blueprints = [
     math_bp, projects_bp, self_improve_bp, consciousness_bp, memory_bp,
     autonomous_bp, proactive_bp, mobile_bp, tools_bp, email_bp, news_bp,
     sports_bp, image_bp, gateway_bp, system_bp, intelligence_bp, settings_bp,
+    scripts_bp,
 ]
 for bp in blueprints:
     app.register_blueprint(bp)
@@ -344,14 +347,22 @@ def health():
 
 @app.route("/")
 def index():
-    # Renders templates/iris.html (the main IRIS interface).
-    # The template file is named iris.html, not index.html.
+    # The single IRIS app shell — chat, agents, apps and settings all live
+    # in templates/iris.html (hash-routed views, e.g. /#/settings).
     return render_template("iris.html")
 
 
 @app.route("/settings")
 def settings_page():
-    return render_template("settings.html")
+    # Settings now lives inside the main app shell at #/settings.
+    # Keep this route as a redirect so existing bookmarks keep working.
+    return redirect("/#/settings")
+
+
+@app.route("/favicon.ico")
+def favicon():
+    # Serve the bundled favicon instead of a bare 404.
+    return send_from_directory(os.path.join(app.root_path, "static", "icons"), "favicon.ico")
 
 
 # ─── OMNIS API Endpoints ─────────────────────────────────────────────────
