@@ -61,3 +61,35 @@ def phone_screenshot():
 @phone_bp.route('/device-info', methods=['GET'])
 def phone_device_info():
     return jsonify(phone_bridge.get_device_info())
+
+
+# ─── Connect guide / command console ─────────────────────────────────────
+
+@phone_bp.route('/devices', methods=['GET'])
+def phone_devices():
+    """List devices visible to adb (`adb devices -l`) — used by the connect
+    guide's “Scan for devices” button."""
+    return jsonify(phone_bridge.list_devices())
+
+
+@phone_bp.route('/connect', methods=['POST'])
+def phone_connect():
+    """Connect to a device over the network: `adb connect <ip>:<port>`.
+
+    Body: {"address": "192.168.1.20:5555"}
+    """
+    data = request.get_json() or {}
+    return jsonify(phone_bridge.connect(data.get('address', '')))
+
+
+@phone_bp.route('/exec', methods=['POST'])
+def phone_exec():
+    """Run a user-supplied ADB command from the Phone command console.
+
+    Body: {"command": "shell dumpsys battery"}   (leading `adb ` is optional)
+
+    The command runs for real on the host; stdout/stderr are returned
+    verbatim. Destructive patterns are refused explicitly, never silently.
+    """
+    data = request.get_json() or {}
+    return jsonify(phone_bridge.run_command(data.get('command', '')))

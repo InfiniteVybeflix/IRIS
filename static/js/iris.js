@@ -49,6 +49,13 @@
     },
     close() { $('#modal-overlay').hidden = true; $('#modal-body').innerHTML = ''; },
   };
+  // The dialog's × button and a click on the dimmed backdrop both close the
+  // modal (Escape already did). Without these the only way out was Esc —
+  // which made the “create event” dialog feel stuck.
+  $('#modal-close').addEventListener('click', () => Modal.close());
+  $('#modal-overlay').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) Modal.close();
+  });
   function confirmDialog(message, confirmLabel = 'Confirm', danger = true) {
     return new Promise((resolve) => {
       const wrap = document.createElement('div');
@@ -235,7 +242,7 @@
         : `<div class="msg-content">${this.md(m.text)}</div>`;
       el.innerHTML =
         `<div class="msg-avatar">${m.role === 'user' ? 'You' :
-          '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2a7 7 0 0 1 7 7c0 2.4-1.2 4.2-2.6 5.6-.9.9-1.4 1.9-1.4 3.1V19a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-1.3c0-1.2-.5-2.2-1.4-3.1C6.2 13.2 5 11.4 5 9a7 7 0 0 1 7-7Z"/></svg>'}</div>
+          '<img src="/static/iris-logo.png" alt="IRIS" class="avatar-logo">'}</div>
          <div class="msg-body">
            <div class="msg-role">${m.role === 'user' ? 'You' : 'IRIS'}${m.time ? `<span class="muted" style="font-weight:400">· ${esc(m.time)}</span>` : ''}</div>
            ${steps}${bodyHtml}
@@ -356,9 +363,9 @@
     'apps/notes':      { title: 'Notes',      sub: 'Personal knowledge', init: initNotes, load: loadNotes },
     'apps/calculator': { title: 'Calculator', sub: 'Standard · statistics · units', init: initCalculator, load: null },
     'apps/projects':   { title: 'Projects',   sub: 'Generate real scaffolds', init: initProjects, load: loadProjects },
-    'apps/vision':     { title: 'Vision',     sub: 'Server-side frames + analysis', init: initVision, load: null },
+    'apps/vision':     { title: 'Vision',     sub: 'Live screen & camera · real-time transcription', init: initVision, load: null },
     'apps/math':       { title: 'Math',       sub: 'Symbolic engine', init: initMath, load: null },
-    'apps/phone':      { title: 'Phone',      sub: 'ADB bridge control', init: initPhone, load: loadPhone },
+    'apps/phone':      { title: 'Phone',      sub: 'ADB bridge · connect guide · command console', init: initPhone, load: loadPhone },
     'settings':        { title: 'Settings',   sub: 'Provider · models & scripts · integrations · system', init: initSettings, load: loadSettingsView },
   };
   const inited = new Set();
@@ -1107,68 +1114,241 @@
   }
 
   /* ══════════════════════════ VISION ════════════════════════════════ */
-  const Vision = { polling: null, errors: 0 };
-  function initVision() {
+  /* Real, browser-native streaming:
+     - Screen share  → navigator.mediaDevices.getDisplayMedia (the browser's
+       own screen picker, live local video — nothing is simulated)
+     - Camera        → navigator.mediaDevices.getUserMedia
+     - Transcription → Web Speech API with continuous recognition + interim
+       results (real engine, live text)
+     - Analyze       → captures the CURRENT frame from the live <video> onto
+       a canvas and POSTs it with the question to /api/vision/analyze, which
+       runs the configured vision model server-side. */
+  const Vision = { stream: null, track: null, transcribing: false, rec: null, transcript: [] };
+  function setVisionState(text, cls) {
+    const b = $('#vision-state');
+    b.textContent = text;
+    b.className = cls ? `badge ${cls}` : 'badge';
+  }
+  async function initVision() {
     $('#vision-start').addEventListener('click', async () => {
       const source = $('#vision-source').value;
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast('This browser does not expose media capture APIs. Use a modern Chrome/Edge/Firefox over HTTPS.', 'error', 'Vision unavailable');
+        return;
+      }
       try {
-        must(await api('/api/vision/stream/start', { method: 'POST', body: { source, interval: 2.0 } }), 'Start stream');
-        $('#vision-state').textContent = `streaming · ${source}`;
-        $('#vision-state').className = 'badge accent';
+        let stream;
+        if (source === 'screen') {
+          if (!navigator.mediaDevices.getDisplayMedia) {
+            toast('Screen share is not supported in this browser. Chrome or Edge on desktop can share screens.', 'error', 'Screen share unavailable');
+            return;
+          }
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: { frameRate: 30 }, audio: false,
+          });
+        } else {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }, audio: false,
+          });
+        }
+        Vision.stream = stream;
+        Vision.track = stream.getVideoTracks()[0] || null;
+        const video = $('#vision-video');
+        video.srcObject = stream;
+        video.hidden = false;
+        $('#vision-placeholder').hidden = true;
+        // If the user clicks the browser's own “Stop sharing” bar, clean up.
+        if (Vision.track) {
+          Vision.track.addEventListener('ended', () => stopVisionStream(true));
+        }
+        setVisionState(`streaming · ${source === 'screen' ? 'screen' : 'camera'}`, 'accent');
         $('#vision-start').disabled = true;
         $('#vision-stop').disabled = false;
-        Vision.errors = 0;
-        startVisionPolling();
-        toast(`Vision stream started (${source}).`, 'success');
-      } catch { /* toasted */ }
+        toast(`${source === 'screen' ? 'Screen' : 'Camera'} stream is live.`, 'success');
+      } catch (e) {
+        if (e && (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError')) {
+          toast('Permission denied — you need to allow the screen/camera pick to start a stream.', 'warn', 'Stream cancelled');
+        } else if (e && e.name === 'NotFoundError') {
+          toast('No camera was found on this device.', 'error', 'Stream failed');
+        } else {
+          toast(e.message || String(e), 'error', 'Could not start stream');
+        }
+      }
     });
-    $('#vision-stop').addEventListener('click', async () => {
-      stopVisionPolling();
-      try { await api('/api/vision/stream/stop', { method: 'POST', silent: true }); } catch { /* best effort */ }
-      $('#vision-state').textContent = 'idle';
-      $('#vision-state').className = 'badge';
-      $('#vision-start').disabled = false;
-      $('#vision-stop').disabled = true;
-      toast('Vision stream stopped.', 'info');
-    });
+    $('#vision-stop').addEventListener('click', () => stopVisionStream(false));
     $('#vision-analyze').addEventListener('click', async (e) => {
       const btn = e.currentTarget;
       const question = $('#vision-question').value.trim() || 'What do you see?';
       btn.classList.add('loading');
+      const out = $('#vision-output');
+      out.hidden = false; out.className = 'result-console'; out.textContent = 'Capturing frame and analyzing…';
       try {
-        const d = await api('/api/vision/analyze', { method: 'POST', timeout: 120000, body: { question } });
-        const out = $('#vision-output');
-        out.hidden = false;
-        if (d.success === false) { out.className = 'result-console err'; out.textContent = `Analysis failed: ${d.error || 'unknown error'}`; }
-        else {
+        const frame = captureVisionFrame();
+        if (!frame) {
+          out.hidden = false; out.className = 'result-console err';
+          out.textContent = 'No live frame to capture — start the screen/camera stream first.';
+          return;
+        }
+        const transcript = Vision.transcript.map((t) => t.text).join(' ').slice(-4000);
+        const d = await api('/api/vision/analyze', {
+          method: 'POST', timeout: 120000,
+          body: { question, frame, transcript },
+        });
+        if (d.success === false) {
+          out.className = 'result-console err';
+          out.textContent = `Analysis failed: ${d.error || 'unknown error'}`;
+          toast(d.error || 'Vision analysis failed', 'error', 'Analyze');
+        } else {
           out.className = 'result-console ok';
-          out.textContent = d.analysis || d.description || d.result || JSON.stringify(d, null, 2);
+          out.textContent = d.analysis || JSON.stringify(d, null, 2);
         }
       } catch (err) {
-        const out = $('#vision-output');
         out.hidden = false; out.className = 'result-console err';
         out.textContent = `Analysis request failed: ${err.message}`;
       } finally { btn.classList.remove('loading'); }
     });
-  }
-  function startVisionPolling() {
-    stopVisionPolling();
-    Vision.polling = setInterval(async () => {
-      try {
-        const d = await api('/api/vision/frame', { silent: true, timeout: 10000 });
-        if (d && d.frame) {
-          Vision.errors = 0;
-          const feed = $('#vision-feed');
-          let img = feed.querySelector('img');
-          if (!img) { feed.innerHTML = ''; img = document.createElement('img'); feed.appendChild(img); }
-          img.src = `data:image/jpeg;base64,${d.frame}`;
-        }
-      } catch (e) {
-        if (++Vision.errors >= 3) { stopVisionPolling(); toast('Vision polling failed 3 times — stream stopped.', 'error'); }
+
+    /* ── Live transcription (Web Speech API, continuous) ── */
+    $('#transcript-toggle').addEventListener('click', () => {
+      if (Vision.transcribing) { stopTranscription(); return; }
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) {
+        toast('This browser has no speech recognition. Chrome or Edge support it.', 'error', 'Transcription unavailable');
+        return;
       }
-    }, 1500);
+      const rec = new SR();
+      rec.lang = navigator.language || 'en-US';
+      rec.continuous = true;
+      rec.interimResults = true;
+      let interimEl = null;
+      rec.onresult = (ev) => {
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+          const r = ev.results[i];
+          const text = r[0].transcript.trim();
+          if (r.isFinal) {
+            if (text) {
+              Vision.transcript.push({ text, at: clock() });
+              const row = document.createElement('div');
+              row.className = 'transcript-line';
+              row.innerHTML = `<span class="t-time">${esc(clock())}</span><span class="t-text">${esc(text)}</span>`;
+              $('#transcript-box').appendChild(row);
+              $('#transcript-box').scrollTop = $('#transcript-box').scrollHeight;
+              $('#transcript-ask').disabled = false;
+            }
+            interimEl = null;
+          } else if (text) {
+            if (!interimEl) {
+              interimEl = document.createElement('div');
+              interimEl.className = 'transcript-line interim';
+              interimEl.innerHTML = `<span class="t-time">${esc(clock())}</span><span class="t-text"></span>`;
+              $('#transcript-box').appendChild(interimEl);
+            }
+            interimEl.querySelector('.t-text').textContent = text;
+            $('#transcript-box').scrollTop = $('#transcript-box').scrollHeight;
+          }
+        }
+      };
+      rec.onerror = (ev) => {
+        if (ev.error === 'not-allowed') {
+          toast('Microphone permission denied — allow the mic to transcribe.', 'error', 'Mic blocked');
+          stopTranscription();
+        } else if (ev.error === 'no-speech') {
+          /* keep listening */
+        } else if (ev.error !== 'aborted') {
+          toast(`Recognition error: ${ev.error}`, 'error', 'Transcription');
+        }
+      };
+      rec.onend = () => {
+        // Chrome auto-stops after silence — restart while the user still
+        // wants live transcription.
+        if (Vision.transcribing) { try { rec.start(); } catch { /* restarting too fast */ } }
+      };
+      Vision.rec = rec;
+      Vision.transcribing = true;
+      try {
+        rec.start();
+        $('#transcript-toggle').textContent = 'Stop listening';
+        $('#transcript-toggle').classList.remove('btn-primary');
+        $('#transcript-toggle').classList.add('btn-danger-ghost');
+        const st = $('#transcript-state');
+        st.textContent = 'listening'; st.className = 'badge accent';
+        $('#transcript-empty') && ($('#transcript-empty').hidden = true);
+      } catch (e) {
+        toast(e.message, 'error', 'Could not start transcription');
+        Vision.transcribing = false;
+      }
+    });
+    $('#transcript-clear').addEventListener('click', () => {
+      Vision.transcript = [];
+      $('#transcript-box').innerHTML = '<div class="empty-state">No transcript yet. Press “Listen” and speak.</div>';
+      $('#transcript-ask').disabled = true;
+    });
+    $('#transcript-ask').addEventListener('click', async () => {
+      const transcript = Vision.transcript.map((t) => t.text).join(' ');
+      if (!transcript.trim()) { toast('No transcript captured yet.', 'warn'); return; }
+      const frame = captureVisionFrame();
+      const btn = $('#transcript-ask');
+      btn.classList.add('loading');
+      try {
+        const d = await api('/api/vision/analyze', {
+          method: 'POST', timeout: 120000,
+          body: {
+            question: 'The user has been speaking while sharing this view. Based on the transcript and the current frame, what are they doing and what do they most likely need help with?',
+            frame: frame || undefined,
+            transcript,
+          },
+        });
+        const out = $('#vision-output');
+        out.hidden = false;
+        out.className = d.success === false ? 'result-console err' : 'result-console ok';
+        out.textContent = d.success === false ? `Analysis failed: ${d.error}` : (d.analysis || '');
+        if (d.success === false) toast(d.error, 'error', 'Ask IRIS');
+      } catch { /* toasted */ }
+      finally { btn.classList.remove('loading'); }
+    });
   }
-  function stopVisionPolling() { if (Vision.polling) { clearInterval(Vision.polling); Vision.polling = null; } }
+  function stopTranscription() {
+    Vision.transcribing = false;
+    if (Vision.rec) { try { Vision.rec.stop(); } catch { /* noop */ } Vision.rec = null; }
+    $('#transcript-toggle').textContent = 'Listen';
+    $('#transcript-toggle').classList.add('btn-primary');
+    $('#transcript-toggle').classList.remove('btn-danger-ghost');
+    const st = $('#transcript-state');
+    st.textContent = 'off'; st.className = 'badge';
+  }
+  /** Grab the current live frame as a base64 JPEG (downscaled to max 1280px). */
+  function captureVisionFrame() {
+    const video = $('#vision-video');
+    if (!video || video.hidden || !video.videoWidth) return null;
+    const maxW = 1280;
+    const scale = Math.min(1, maxW / video.videoWidth);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    try {
+      return canvas.toDataURL('image/jpeg', 0.82);
+    } catch (e) {
+      toast(`Frame capture failed: ${e.message}`, 'error', 'Vision');
+      return null;
+    }
+  }
+  function stopVisionStream(browserEnded) {
+    if (Vision.stream) {
+      Vision.stream.getTracks().forEach((t) => { try { t.stop(); } catch { /* noop */ } });
+      Vision.stream = null;
+      Vision.track = null;
+    }
+    const video = $('#vision-video');
+    if (video) { video.srcObject = null; video.hidden = true; }
+    $('#vision-placeholder').hidden = false;
+    setVisionState('idle', '');
+    $('#vision-start').disabled = false;
+    $('#vision-stop').disabled = true;
+    toast(browserEnded ? 'Stream ended (sharing was stopped in the browser).' : 'Stream stopped.', 'info');
+  }
 
   /* ══════════════════════════ MATH ══════════════════════════════════ */
   function initMath() {
@@ -1270,6 +1450,91 @@
       } catch { /* toasted */ }
     });
     $('#phone-msgs-refresh').addEventListener('click', loadPhoneMessages);
+
+    /* ── Connect guide: scan + wireless connect ── */
+    $('#adb-scan').addEventListener('click', async () => {
+      const btn = $('#adb-scan');
+      btn.classList.add('loading');
+      const out = $('#adb-devices-out');
+      out.hidden = false; out.className = 'guide-console mono'; out.textContent = 'Scanning…';
+      try {
+        const d = await api('/api/phone/devices', { timeout: 20000 });
+        if (d.success === false) {
+          out.className = 'guide-console mono err';
+          out.textContent = `Scan failed: ${d.error || 'adb unavailable'}`;
+          toast(d.error || 'adb scan failed', 'error', 'Scan devices');
+          return;
+        }
+        const devs = d.devices || [];
+        out.className = 'guide-console mono';
+        out.textContent = devs.length
+          ? (d.raw || '').trim()
+          : 'No devices found. Plug the phone in over USB and accept the "Allow USB debugging?" prompt, then scan again.';
+        if (devs.length) toast(`${devs.length} device(s) found.`, 'success', 'Scan devices');
+        loadPhone();
+      } catch (e) {
+        out.className = 'guide-console mono err';
+        out.textContent = `Scan failed: ${e.message}`;
+      } finally { btn.classList.remove('loading'); }
+    });
+    $('#adb-connect').addEventListener('click', async () => {
+      const address = $('#adb-address').value.trim();
+      if (!address) { toast('Type the phone address first — e.g. 192.168.1.20:5555', 'warn', 'Connect'); return; }
+      const btn = $('#adb-connect');
+      btn.classList.add('loading');
+      const out = $('#adb-connect-out');
+      out.hidden = false; out.className = 'guide-console mono'; out.textContent = `Connecting to ${address}…`;
+      try {
+        const d = must(await api('/api/phone/connect', { method: 'POST', timeout: 25000, body: { address } }), 'Connect');
+        const msg = (d.stdout || d.stderr || '').trim() || (d.success ? 'connected.' : 'failed.');
+        out.textContent = msg;
+        out.className = `guide-console mono ${d.success ? '' : 'err'}`;
+        if (d.success) {
+          toast(`Connected to ${address}.`, 'success', 'Connect');
+          loadPhone();
+        } else {
+          toast(msg, 'error', 'Connect failed');
+        }
+      } catch { /* toasted */ }
+      finally { btn.classList.remove('loading'); }
+    });
+
+    /* ── Command console ── */
+    const runAdb = async () => {
+      const cmd = $('#adb-cmd').value.trim();
+      if (!cmd) { toast('Type a command first — e.g. shell dumpsys battery', 'warn', 'Command console'); return; }
+      const btn = $('#adb-run');
+      btn.classList.add('loading');
+      const out = $('#adb-exec-out');
+      out.hidden = false; out.className = 'guide-console mono'; out.textContent = `adb ${cmd} — running…`;
+      try {
+        const d = await api('/api/phone/exec', { method: 'POST', timeout: 70000, body: { command: cmd } });
+        const text = [d.command ? `$ ${d.command}` : null, d.stdout || '', d.stderr ? `[stderr] ${d.stderr}` : '', d.error ? `error: ${d.error}` : '']
+          .filter(Boolean).join('\n').trim() || '(no output)';
+        out.textContent = text;
+        out.className = `guide-console mono ${d.success === false ? 'err' : ''}`;
+        if (d.success === false) toast(d.error || 'Command failed', 'error', 'Command console');
+      } catch (e) {
+        out.className = 'guide-console mono err';
+        out.textContent = `Request failed: ${e.message}`;
+      } finally { btn.classList.remove('loading'); }
+    };
+    $('#adb-run').addEventListener('click', runAdb);
+    $('#adb-cmd').addEventListener('keydown', (e) => { if (e.key === 'Enter') runAdb(); });
+    $$('#adb-quick .chip').forEach((chip) => chip.addEventListener('click', () => {
+      $('#adb-cmd').value = chip.dataset.cmd;
+      runAdb();
+    }));
+    $('#phone-ask-iris').addEventListener('click', () => {
+      const cmd = $('#adb-cmd').value.trim();
+      if (!cmd) { toast('Type the command you want IRIS to handle first.', 'warn', 'Ask IRIS'); return; }
+      navigate('chat');
+      const input = $('#chat-input');
+      input.value = `Run on my phone: adb ${cmd}`;
+      input.focus();
+      input.dispatchEvent(new Event('input'));
+      toast('Handed to chat — press Send to let IRIS run it.', 'info', 'Ask IRIS');
+    });
   }
 
   /* ══════════════════════════ SETTINGS ══════════════════════════════ */

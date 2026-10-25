@@ -7,9 +7,9 @@
     <meta name="description" content="IRIS — a multi-agent AI workspace: chat, agent delegation, and built-in apps.">
     <meta name="theme-color" content="#0c0d10">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/iris.css') }}">
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/favicon.svg') }}">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='iris-logo.png') }}">
     <link rel="alternate icon" href="{{ url_for('static', filename='icons/favicon.ico') }}">
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='iris-logo.png') }}">
     <link rel="manifest" href="{{ url_for('static', filename='icons/site.webmanifest') }}">
 </head>
 <body>
@@ -19,10 +19,10 @@
     <aside class="sidebar" id="sidebar" aria-label="Primary">
         <div class="brand">
             <span class="brand-mark" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.4-1.2 4.2-2.6 5.6-.9.9-1.4 1.9-1.4 3.1V19a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-1.3c0-1.2-.5-2.2-1.4-3.1C6.2 13.2 5 11.4 5 9a7 7 0 0 1 7-7Z"/><path d="M9.5 21.5h5"/></svg>
+                <img src="{{ url_for('static', filename='iris-logo.png') }}" alt="" class="brand-logo">
             </span>
             <span class="brand-name">IRIS</span>
-            <span class="brand-ver">v8</span>
+            <span class="brand-ver">v1</span>
         </div>
 
         <nav class="nav">
@@ -119,7 +119,7 @@
                         <div class="chat-col" id="chat-col">
                             <div class="chat-hero" id="chat-hero">
                                 <div class="hero-mark">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.4-1.2 4.2-2.6 5.6-.9.9-1.4 1.9-1.4 3.1V19a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v-1.3c0-1.2-.5-2.2-1.4-3.1C6.2 13.2 5 11.4 5 9a7 7 0 0 1 7-7Z"/><path d="M9.5 21.5h5"/></svg>
+                                    <img src="{{ url_for('static', filename='iris-logo.png') }}" alt="IRIS" class="hero-logo">
                                 </div>
                                 <h2>Chat with IRIS</h2>
                                 <p>Ask anything. Requests run through IRIS's orchestrator, cortex and agent corps — responses come from the configured LLM provider, not a script.</p>
@@ -199,46 +199,62 @@
                     <h2>Apps</h2>
                     <p class="muted">Everything here talks to the live IRIS backend — nothing is simulated, and failures are reported, never hidden.</p>
                 </div>
-                <div class="apps-grid">
-                    <a class="app-card" href="#/apps/calendar">
-                        <span class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 9h18"/></svg></span>
-                        <span class="app-name">Calendar</span>
-                        <span class="app-desc">Events, scheduling and .ics export</span>
-                        <span class="app-badge" id="app-badge-calendar" hidden></span>
-                    </a>
-                    <a class="app-card" href="#/apps/notes">
-                        <span class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 13h6M9 17h4"/></svg></span>
-                        <span class="app-name">Notes</span>
-                        <span class="app-desc">Create, pin, search and edit notes</span>
-                        <span class="app-badge" id="app-badge-notes" hidden></span>
-                    </a>
-                    <a class="app-card" href="#/apps/calculator">
-                        <span class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8M9 11h.01M12 11h.01M15 11h.01M9 14h.01M12 14h.01M15 14h.01M9 17h.01M12 17h.01M15 17h.01"/></svg></span>
-                        <span class="app-name">Calculator</span>
-                        <span class="app-desc">Standard, statistics and unit conversion</span>
-                    </a>
-                    <a class="app-card" href="#/apps/projects">
-                        <span class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
-                        <span class="app-name">Projects</span>
-                        <span class="app-desc">Generate real project scaffolds</span>
-                        <span class="app-badge" id="app-badge-projects" hidden></span>
-                    </a>
-                    <a class="app-card" href="#/apps/vision">
-                        <span class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></span>
-                        <span class="app-name">Vision</span>
-                        <span class="app-desc">Live screen/camera frames + analysis</span>
-                    </a>
-                    <a class="app-card" href="#/apps/math">
-                        <span class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h6M8 5v6M15 7h4M15 17h4M15 14.5l4 5M5 15.5l6 4M5 19.5l6-4"/></svg></span>
-                        <span class="app-name">Math</span>
-                        <span class="app-desc">Solve, simplify, differentiate, integrate</span>
-                    </a>
-                    <a class="app-card" href="#/apps/phone">
-                        <span class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18.5h2"/></svg></span>
-                        <span class="app-name">Phone</span>
-                        <span class="app-desc">ADB bridge, quick actions, contacts</span>
-                        <span class="app-badge" id="app-badge-phone" hidden></span>
-                    </a>
+
+                <div class="apps-section">
+                    <div class="apps-section-title"><span>Daily tools</span><span class="apps-section-line"></span></div>
+                    <div class="apps-grid">
+                        <a class="app-card" href="#/apps/calendar" data-accent="blue">
+                            <span class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 9h18"/></svg></span>
+                            <span class="app-name">Calendar</span>
+                            <span class="app-desc">Events, scheduling and .ics export</span>
+                            <span class="app-badge" id="app-badge-calendar" hidden></span>
+                        </a>
+                        <a class="app-card" href="#/apps/notes" data-accent="amber">
+                            <span class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M9 13h6M9 17h4"/></svg></span>
+                            <span class="app-name">Notes</span>
+                            <span class="app-desc">Create, pin, search and edit notes</span>
+                            <span class="app-badge" id="app-badge-notes" hidden></span>
+                        </a>
+                        <a class="app-card" href="#/apps/calculator" data-accent="violet">
+                            <span class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8M9 11h.01M12 11h.01M15 11h.01M9 14h.01M12 14h.01M15 14h.01M9 17h.01M12 17h.01M15 17h.01"/></svg></span>
+                            <span class="app-name">Calculator</span>
+                            <span class="app-desc">Standard, statistics and unit conversion</span>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="apps-section">
+                    <div class="apps-section-title"><span>Work</span><span class="apps-section-line"></span></div>
+                    <div class="apps-grid">
+                        <a class="app-card" href="#/apps/projects" data-accent="green">
+                            <span class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>
+                            <span class="app-name">Projects</span>
+                            <span class="app-desc">Generate real project scaffolds</span>
+                            <span class="app-badge" id="app-badge-projects" hidden></span>
+                        </a>
+                        <a class="app-card" href="#/apps/math" data-accent="teal">
+                            <span class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h6M8 5v6M15 7h4M15 17h4M15 14.5l4 5M5 15.5l6 4M5 19.5l6-4"/></svg></span>
+                            <span class="app-name">Math</span>
+                            <span class="app-desc">Solve, simplify, differentiate, integrate</span>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="apps-section">
+                    <div class="apps-section-title"><span>Senses</span><span class="apps-section-line"></span></div>
+                    <div class="apps-grid">
+                        <a class="app-card" href="#/apps/vision" data-accent="rose">
+                            <span class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></span>
+                            <span class="app-name">Vision</span>
+                            <span class="app-desc">Live screen &amp; camera + real-time transcription</span>
+                        </a>
+                        <a class="app-card" href="#/apps/phone" data-accent="orange">
+                            <span class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18.5h2"/></svg></span>
+                            <span class="app-name">Phone</span>
+                            <span class="app-desc">ADB bridge, connect guide, command console</span>
+                            <span class="app-badge" id="app-badge-phone" hidden></span>
+                        </a>
+                    </div>
                 </div>
             </section>
             <!-- ─────────── Calendar ─────────── -->
@@ -423,7 +439,7 @@
             <!-- ─────────── Vision ─────────── -->
             <section class="view" id="view-vision" hidden>
                 <div class="vision-layout">
-                    <div class="panel">
+                    <div class="panel vision-feed-panel">
                         <div class="panel-head">
                             <h2>Live feed</h2>
                             <span class="badge" id="vision-state">idle</span>
@@ -431,7 +447,7 @@
                         <div class="vision-controls">
                             <label class="field"><span>Source</span>
                                 <select class="input" id="vision-source">
-                                    <option value="screen">Screen</option>
+                                    <option value="screen">Screen share</option>
                                     <option value="camera">Camera</option>
                                 </select>
                             </label>
@@ -439,7 +455,24 @@
                             <button class="btn btn-secondary" id="vision-stop" disabled>Stop</button>
                         </div>
                         <div class="vision-feed" id="vision-feed">
-                            <div class="empty-state">Stream is off. Frames shown here are captured by the server-side vision module — nothing is faked in the browser.</div>
+                            <video id="vision-video" autoplay playsinline muted hidden></video>
+                            <div class="vision-placeholder" id="vision-placeholder">
+                                <p>Stream is off.</p>
+                                <p class="muted">“Screen share” uses your browser's real screen picker and “Camera” uses your real webcam — the live video never leaves this tab until you analyze a frame.</p>
+                            </div>
+                        </div>
+                        <p class="muted" id="vision-note">Frame analysis runs on the configured vision model. Requires a provider in Settings.</p>
+                    </div>
+                    <div class="panel">
+                        <div class="panel-head"><h2>Transcription</h2><span class="badge" id="transcript-state">off</span></div>
+                        <p class="muted">Live speech-to-text from your microphone (browser speech engine — real recognition, interim results shown as they arrive).</p>
+                        <div class="transcript-box" id="transcript-box">
+                            <div class="empty-state" id="transcript-empty">No transcript yet. Press “Listen” and speak.</div>
+                        </div>
+                        <div class="form-row">
+                            <button class="btn btn-primary" id="transcript-toggle">Listen</button>
+                            <button class="btn btn-secondary" id="transcript-clear">Clear</button>
+                            <button class="btn btn-secondary" id="transcript-ask" disabled>Ask IRIS about this + screen</button>
                         </div>
                     </div>
                     <div class="panel">
@@ -448,6 +481,7 @@
                             <input class="input" id="vision-question" placeholder="Ask about the current frame… (e.g. What do you see?)">
                             <button class="btn btn-primary" id="vision-analyze">Analyze</button>
                         </div>
+                        <p class="muted">Captures the current frame from the live stream and sends it with your question to the vision model.</p>
                         <div class="result-console" id="vision-output" hidden></div>
                     </div>
                 </div>
@@ -489,6 +523,60 @@
                             <button class="btn btn-secondary btn-sm" data-phone-cmd="camera">Camera</button>
                         </div>
                     </div>
+
+                    <div class="panel">
+                        <div class="panel-head"><h2>Connect a phone (ADB)</h2></div>
+                        <ol class="adb-guide">
+                            <li>
+                                <strong>On the phone:</strong> Settings → About phone → tap <em>Build number</em> 7× to unlock <em>Developer options</em>, then enable <em>USB debugging</em> (and <em>Wireless debugging</em> for Wi-Fi mode).
+                            </li>
+                            <li>
+                                <strong>On the computer running IRIS</strong> (not a Vercel server — ADB needs a local host): install the platform tools, e.g. <code>sudo apt install adb</code> (Linux/WSL) or download <em>Android platform-tools</em> for Windows/macOS.
+                            </li>
+                            <li>
+                                <strong>USB mode:</strong> plug the phone in, accept the “Allow USB debugging?” prompt, then scan here:
+                                <div class="guide-actions">
+                                    <button class="btn btn-secondary btn-sm" id="adb-scan">Scan for devices</button>
+                                </div>
+                                <div class="guide-console mono" id="adb-devices-out" hidden></div>
+                            </li>
+                            <li>
+                                <strong>Wireless mode (same Wi-Fi):</strong> first connect over USB once and run <code>adb tcpip 5555</code>, then find the phone's IP (Settings → About → Status) and connect:
+                                <div class="guide-actions">
+                                    <input class="input input-sm" id="adb-address" placeholder="192.168.1.20:5555" inputmode="text">
+                                    <button class="btn btn-secondary btn-sm" id="adb-connect">Connect</button>
+                                </div>
+                                <div class="guide-console mono" id="adb-connect-out" hidden></div>
+                            </li>
+                            <li>
+                                <strong>Multiple phones?</strong> Set <code>ADB_DEVICE_ID</code> to the id from the scan (e.g. <code>ADB4C1F0E…</code>) so IRIS targets the right device.
+                            </li>
+                        </ol>
+                    </div>
+
+                    <div class="panel">
+                        <div class="panel-head"><h2>Command console</h2><span class="badge">real adb output</span></div>
+                        <p class="muted">Runs a real <code>adb …</code> command on the host and shows its actual output. Type the command without the leading <code>adb</code> (it is added for you). Destructive commands are refused.</p>
+                        <div class="chip-row" id="adb-quick">
+                            <button class="chip" data-cmd="shell dumpsys battery">Battery</button>
+                            <button class="chip" data-cmd="shell wm size">Screen size</button>
+                            <button class="chip" data-cmd="shell dumpsys window displays">Displays</button>
+                            <button class="chip" data-cmd="shell pm list packages -3">Installed apps</button>
+                            <button class="chip" data-cmd="shell svc wifi enable">Wi-Fi on</button>
+                            <button class="chip" data-cmd="shell input keyevent KEYCODE_WAKEUP">Wake up</button>
+                        </div>
+                        <div class="form-row">
+                            <input class="input mono" id="adb-cmd" placeholder="shell input tap 500 1200" spellcheck="false">
+                            <button class="btn btn-primary" id="adb-run">Run</button>
+                        </div>
+                        <div class="guide-console mono" id="adb-exec-out" hidden></div>
+                        <div class="panel-sep"></div>
+                        <div class="form-row">
+                            <button class="btn btn-secondary btn-sm" id="phone-ask-iris">Ask IRIS to run this in chat</button>
+                            <span class="muted">Sends “Run on my phone: …” to the chat so IRIS can chain further actions.</span>
+                        </div>
+                    </div>
+
                     <div class="panel">
                         <div class="panel-head"><h2>Contacts</h2></div>
                         <div class="form-row">

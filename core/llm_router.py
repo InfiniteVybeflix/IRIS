@@ -39,16 +39,83 @@ class LLMBackend:
     def health_check(self): return False
 
 
+def normalize_openai_base_url(url: str, force_v1: bool = False) -> str:
+    """Normalize an OpenAI-compatible base URL.
+
+    - strips trailing slashes and stray "<...>" characters (users often paste
+      URLs copied from docs that include placeholders)
+    - when force_v1 is set (Aevibron), appends "/api/v1" if the path is missing
+      so a bare host like https://aevibron-gateway.vercel.app still works
+    """
+    u = (url or "").strip().strip("<>").rstrip("/")
+    if not u:
+        return u
+    if force_v1 and not ("/api/v1" in u or u.endswith("/v1")):
+        u = f"{u}/api/v1"
+    return u
+
+
+def extract_content(data: Any) -> str:
+    """Extract assistant text from any common chat-response shape.
+
+    Supports the OpenAI shape (choices[0].message.content), the Anthropic
+    shape (content[].text), and flat shapes ({content|text|response|message}).
+    Returns "" when nothing recognizable is present.
+    """
+    if not isinstance(data, dict):
+        return str(data) if data is not None else ""
+    choices = data.get("choices")
+    if isinstance(choices, list) and choices:
+        ch = choices[0] or {}
+        msg = ch.get("message") or {}
+        if isinstance(msg, dict):
+            c = msg.get("content")
+            if isinstance(c, str) and c:
+                return c
+            if isinstance(c, list):  # content parts
+                txt = "".join(p.get("text", "") for p in c if isinstance(p, dict))
+                if txt:
+                    return txt
+        if isinstance(ch.get("text"), str) and ch["text"]:
+            return ch["text"]
+        delta = ch.get("delta") or {}
+        if isinstance(delta, dict) and delta.get("content"):
+            return delta["content"]
+    content = data.get("content")
+    if isinstance(content, str) and content:
+        return content
+    if isinstance(content, list):  # Anthropic style
+        txt = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+        if txt:
+            return txt
+    for key in ("response", "text", "output", "result"):
+        v = data.get(key)
+        if isinstance(v, str) and v:
+            return v
+    msg = data.get("message")
+    if isinstance(msg, str) and msg:
+        return msg
+    if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+        return msg["content"]
+    return ""
+
+
 class OpenAICompatBackend(LLMBackend):
-    """OpenAI-compat endpoint: Aevibron, Ollama, OpenAI, OpenRouter, Together."""
+    """OpenAI-compat endpoint: Aevibron, Ollama, OpenAI, OpenRouter, Together.
+
+    chat_path lets a provider expose chat at a non-standard path — the
+    Aevibron gateway serves POST /chat (not /chat/completions).
+    """
     def __init__(self, base_url: str, api_key: str = "", model: str = "",
-                 name: str = "openai-compat", headers: Optional[Dict[str, str]] = None):
+                 name: str = "openai-compat", headers: Optional[Dict[str, str]] = None,
+                 chat_path: str = "/chat/completions", force_v1: bool = False):
         super().__init__(base_url=base_url, api_key=api_key, model=model)
-        self.base_url = base_url.rstrip("/")
+        self.base_url = normalize_openai_base_url(base_url, force_v1=force_v1)
         self.api_key = api_key
         self.default_model = model
         self.name = name
         self.extra_headers = headers or {}
+        self.chat_path = chat_path
 
     def _headers(self):
         h = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -63,17 +130,24 @@ class OpenAICompatBackend(LLMBackend):
         body = json.dumps({"model": model, "messages": messages,
                            "temperature": temperature, "max_tokens": max_tokens,
                            "stream": False}).encode("utf-8")
-        url = f"{self.base_url}/chat/completions"
+        url = f"{self.base_url}{self.chat_path}"
         req = urllib.request.Request(url, data=body, headers=self._headers(), method="POST")
         try:
             with urllib.request.urlopen(req, timeout=120) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-            choice = data.get("choices", [{}])[0]
+            content = extract_content(data)
+            if not content:
+                # Real gateway answer we cannot parse — show it instead of
+                # pretending the model returned an empty string.
+                logger.error("[%s] unparseable chat response: %s", self.name, str(data)[:400])
+                content = f"[{self.name}] The gateway replied but the response shape was unrecognized: {str(data)[:300]}"
+            choices = data.get("choices") or [{}]
+            finish = choices[0].get("finish_reason", "") if isinstance(choices[0], dict) else ""
             return LLMResponse(
-                content=choice.get("message", {}).get("content", ""),
+                content=content,
                 model=data.get("model", model), raw=data,
                 usage=data.get("usage"),
-                finish_reason=choice.get("finish_reason", ""))
+                finish_reason=finish)
         except urllib.error.HTTPError as e:
             err = e.read().decode("utf-8", errors="replace")[:500]
             logger.error("[%s] HTTP %d: %s", self.name, e.code, err)
@@ -90,7 +164,7 @@ class OpenAICompatBackend(LLMBackend):
         body = json.dumps({"model": model, "messages": messages,
                            "temperature": temperature, "max_tokens": max_tokens,
                            "stream": True}).encode("utf-8")
-        url = f"{self.base_url}/chat/completions"
+        url = f"{self.base_url}{self.chat_path}"
         req = urllib.request.Request(url, data=body, headers=self._headers(), method="POST")
         try:
             with urllib.request.urlopen(req, timeout=300) as resp:
@@ -117,7 +191,14 @@ class OpenAICompatBackend(LLMBackend):
         req = urllib.request.Request(url, headers=self._headers())
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
-                return json.loads(resp.read().decode("utf-8")).get("data", [])
+                data = json.loads(resp.read().decode("utf-8"))
+            if isinstance(data, list):            # plain list response
+                return data
+            if isinstance(data.get("data"), list):
+                return data["data"]
+            if isinstance(data.get("models"), list):
+                return data["models"]
+            return []
         except Exception as e:
             logger.warning("[%s] get_models failed: %s", self.name, e)
             return []
@@ -245,7 +326,8 @@ class LLMRouter:
         if aev_token:
             aev_headers["X-Aevibron-Key"] = aev_token
         self._backends["aevibron"] = OpenAICompatBackend(
-            base_url=aev_url, api_key=aev_key, name="aevibron", headers=aev_headers)
+            base_url=aev_url, api_key=aev_key, name="aevibron", headers=aev_headers,
+            chat_path="/chat", force_v1=True)
 
         # ─── Ollama local ────────────────────────────────────────
         oll_local_cfg = providers.get("ollama_local", {})

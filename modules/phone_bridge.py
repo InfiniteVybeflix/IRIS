@@ -15,42 +15,107 @@ class PhoneBridge:
     - Notifications (read, dismiss)
     - Camera (open, take photo)
     - Screen (screenshot, record)
+    - Free-form ADB command console (guided by the connect guide in the UI)
     """
 
     def __init__(self):
         self.device_id = config.ADB_DEVICE_ID
         self.enabled = config.PHONE_BRIDGE_ENABLED
-        self._check_adb()
+        self.adb_available = self._check_adb()
 
     def _check_adb(self) -> bool:
-        """Check if ADB is available and device is connected."""
+        """Check if the adb binary exists. Device presence is checked per-call."""
         try:
-            result = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=5)
-            if self.device_id:
-                return self.device_id in result.stdout
-            return len(result.stdout.strip().split("\n")) > 1
-        except:
-            self.enabled = False
+            result = subprocess.run(["adb", "version"], capture_output=True, text=True, timeout=5)
+            return result.returncode == 0
+        except Exception:
             return False
 
-    def _adb(self, command: List[str]) -> Dict:
+    def _adb(self, command: List[str], timeout: int = 30) -> Dict:
         """Execute ADB command."""
+        if not self.adb_available:
+            return {"success": False, "error": (
+                "ADB is not installed on the host running IRIS. "
+                "Install it (e.g. `sudo apt install adb` or platform-tools) and retry. "
+                "On Vercel's serverless runtime ADB cannot run — self-host for phone control.")}
         if not self.enabled:
-            return {"success": False, "error": "Phone bridge not enabled or ADB not available"}
+            return {"success": False, "error": "Phone bridge is disabled — set PHONE_BRIDGE_ENABLED=true"}
         try:
             cmd = ["adb"]
             if self.device_id:
                 cmd.extend(["-s", self.device_id])
             cmd.extend(command)
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            return {
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            out = {
                 "success": result.returncode == 0,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
+                "stdout": result.stdout[:8000],
+                "stderr": result.stderr[:4000],
                 "returncode": result.returncode
             }
+            if result.returncode != 0 and result.stderr:
+                out["error"] = result.stderr.strip()[:1000]
+            return out
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": f"ADB command timed out after {timeout}s"}
+        except FileNotFoundError:
+            return {"success": False, "error": "ADB binary not found on PATH"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    # === CONNECTION / CONSOLE ===
+    def list_devices(self) -> Dict:
+        """List devices visible to adb (`adb devices -l`), parsed."""
+        raw = self._adb(["devices", "-l"], timeout=10)
+        if not raw.get("success") and "error" in raw:
+            return raw
+        devices = []
+        for line in (raw.get("stdout") or "").splitlines()[1:]:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split()
+            entry = {"id": parts[0], "state": parts[1] if len(parts) > 1 else "unknown"}
+            for p in parts[2:]:
+                if ":" in p:
+                    k, _, v = p.partition(":")
+                    entry[k] = v
+            devices.append(entry)
+        return {"success": True, "devices": devices, "count": len(devices),
+                "raw": raw.get("stdout", "")}
+
+    def connect(self, address: str) -> Dict:
+        """Connect to a device over the network (`adb connect ip:5555`)."""
+        address = (address or "").strip()
+        if not address:
+            return {"success": False, "error": "Address required — e.g. 192.168.1.20:5555"}
+        if not all(c.isdigit() or c in ".:" for c in address):
+            return {"success": False, "error": "Address must look like ip:port (e.g. 192.168.1.20:5555)"}
+        res = self._adb(["connect", address], timeout=15)
+        return {**res, "address": address}
+
+    # Patterns that could destroy data — refused instead of executed.
+    _BLOCKED = ("mkfs", "dd if=", "fastboot", "rm -rf /", ":(){", "wipe", "flash_image")
+
+    def run_command(self, user_command: str) -> Dict:
+        """Run a user-supplied ADB command from the Phone console.
+
+        The command is everything AFTER the `adb` binary name (a leading
+        `adb ` is accepted and stripped). Output is captured verbatim —
+        nothing is simulated. Destructive patterns are refused explicitly.
+        """
+        cmd = (user_command or "").strip()
+        if not cmd:
+            return {"success": False, "error": "Type a command first — e.g. shell dumpsys battery"}
+        if cmd.lower().startswith("adb "):
+            cmd = cmd[4:].strip()
+        low = cmd.lower()
+        for pattern in self._BLOCKED:
+            if pattern in low:
+                return {"success": False,
+                        "error": f"Refused: “{pattern}” is on the destructive-command blocklist."}
+        parts = cmd.split()
+        res = self._adb(parts, timeout=60)
+        return {**res, "command": f"adb {cmd}"}
 
     # === CONTACTS ===
     def get_contacts(self) -> Dict:

@@ -35,5 +35,20 @@ def vision_stream_stop():
 
 @vision_bp.route('/analyze', methods=['POST'])
 def vision_analyze():
+    """Analyze a frame with the configured vision model.
+
+    Body: {
+        "question":   "What do you see?",
+        "frame":      "<base64 JPEG>"      # optional — captured by the browser
+                                             from the live screen/camera stream;
+                                             falls back to the server-side frame
+                                             when self-hosted
+        "transcript": "live speech text"   # optional context
+    }
+    """
     data = request.get_json() or {}
-    return jsonify(vision_stream.analyze_current_view(data.get('question', 'What do you see?')))
+    return jsonify(vision_stream.analyze_current_view(
+        data.get('question', 'What do you see?'),
+        frame_b64=data.get('frame'),
+        transcript=data.get('transcript', ''),
+    ))

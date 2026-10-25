@@ -187,18 +187,61 @@ def test_connection():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+def _friendly_http_error(url: str, e: urllib.error.HTTPError) -> str:
+    """Turn raw HTTP failures into actionable messages (never dump HTML)."""
+    body = ""
+    try:
+        body = e.read().decode("utf-8", errors="replace")
+    except Exception:
+        pass
+    body_head = body[:200].replace("\n", " ")
+    is_html = "<!doctype" in body_head.lower() or "<html" in body_head.lower()
+
+    if e.code == 404 and is_html:
+        return (f"HTTP 404 — the endpoint {url} does not exist (the server answered with an "
+                f"HTML page, not JSON). For the Aevibron gateway the URL must be "
+                f"https://aevibron-gateway.vercel.app/api/v1 — check that the path is complete.")
+    if e.code == 404:
+        return f"HTTP 404 — {url} was not found on this server."
+    if e.code == 401:
+        try:
+            data = json.loads(body)
+            detail = data.get("error") or data.get("message") or ""
+        except Exception:
+            detail = body_head
+        return (f"HTTP 401 Unauthorized — the server said: {detail or 'credentials missing'}. "
+                f"For the Aevibron gateway, paste your access key into the “X-Aevibron-Key” field "
+                f"(this is the key the gateway checks; a Bearer key alone is not enough).")
+    if e.code == 403:
+        return f"HTTP 403 Forbidden — the key was accepted but lacks access to {url}."
+    if e.code == 429:
+        return "HTTP 429 — rate limited by the provider. Wait a moment and test again."
+    if e.code >= 500:
+        return f"HTTP {e.code} — the provider failed server-side. It said: {body_head}"
+    return f"HTTP {e.code} — {body_head or url}"
+
+
 def _test_openai_compat(provider: str, config: dict, test_prompt: str) -> dict:
-    """Test an OpenAI-compatible endpoint (Aevibron, Ollama, OpenAI, custom)."""
-    # Build URL + headers
+    """Test an OpenAI-compatible endpoint (Aevibron, Ollama, OpenAI, custom).
+
+    Provider notes (verified against the live Aevibron gateway):
+      - Aevibron serves chat at POST /chat (not /chat/completions) and
+        authenticates via the X-Aevibron-Key header.
+    """
+    chat_path = "/chat/completions"
     if provider == "aevibron":
-        url = (config.get("url") or "https://aevibron-gateway.vercel.app/api/v1").rstrip("/")
+        url = (config.get("url") or "https://aevibron-gateway.vercel.app/api/v1").strip().strip("<>").rstrip("/")
+        # Users often paste the bare host — the gateway only serves /api/v1.
+        if "/api/v1" not in url and not url.endswith("/v1"):
+            url = f"{url}/api/v1"
         key = config.get("key", "")
-        x_key = config.get("x_aevibron_key", "")
+        x_key = config.get("x_aevibron_key", "") or key  # the gateway accepts the API key in X-Aevibron-Key too
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if key:
             headers["Authorization"] = f"Bearer {key}"
         if x_key:
             headers["X-Aevibron-Key"] = x_key
+        chat_path = "/chat"
     elif provider == "ollama_local":
         host = config.get("host", "http://localhost:11434").rstrip("/")
         url = f"{host}/v1"
@@ -227,48 +270,80 @@ def _test_openai_compat(provider: str, config: dict, test_prompt: str) -> dict:
 
     # Step 1: List models
     models = []
+    models_url = f"{url}/models"
     try:
-        models_url = f"{url}/models"
         req = urllib.request.Request(models_url, headers=headers)
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            models = data.get("data", [])
+        if isinstance(data, list):
+            models = data
+        elif isinstance(data.get("data"), list):
+            models = data["data"]
+        elif isinstance(data.get("models"), list):
+            models = data["models"]
     except urllib.error.HTTPError as e:
-        err_body = e.read().decode("utf-8", errors="replace")[:300]
-        return {"success": False, "error": f"HTTP {e.code}: {err_body}", "models": []}
+        return {"success": False, "error": _friendly_http_error(models_url, e), "models": []}
     except urllib.error.URLError as e:
         return {"success": False, "error": f"Connection failed: {e.reason}", "models": []}
     except Exception as e:
         return {"success": False, "error": str(e), "models": []}
 
     if not models:
-        return {"success": False, "error": "Connected but no models returned", "models": []}
+        return {"success": False, "error": "Connected, but no models were returned — check the key's model access.", "models": []}
 
     # Step 2: If test_prompt provided, send a minimal chat request
     test_response = ""
-    model_id = models[0].get("id", "") if models else ""
+    model_id = models[0].get("id", "") if isinstance(models[0], dict) else str(models[0])
     if test_prompt and model_id:
+        chat_url = f"{url}{chat_path}"
         try:
-            chat_url = f"{url}/chat/completions"
             body = json.dumps({
                 "model": model_id,
                 "messages": [{"role": "user", "content": test_prompt}],
                 "max_tokens": 50,
             }).encode("utf-8")
             req = urllib.request.Request(chat_url, data=body, headers=headers, method="POST")
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=25) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-                test_response = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            test_response = _extract_reply(data)
+            if not test_response:
+                test_response = f"(unrecognized response shape: {str(data)[:150]})"
+        except urllib.error.HTTPError as e:
+            test_response = f"(chat test failed on {chat_url}: {_friendly_http_error(chat_url, e)})"
         except Exception as e:
             test_response = f"(chat test failed: {e})"
 
     return {
         "success": True,
-        "models": models,
+        "models": models if isinstance(models[0], dict) else [{"id": m} for m in models],
         "model_count": len(models),
         "test_model": model_id,
         "test_response": test_response[:200] if test_response else "",
     }
+
+
+def _extract_reply(data: dict) -> str:
+    """Pull the assistant text out of any common response shape."""
+    if not isinstance(data, dict):
+        return ""
+    choices = data.get("choices")
+    if isinstance(choices, list) and choices:
+        ch = choices[0] or {}
+        msg = ch.get("message") or {}
+        if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+            return msg["content"]
+        if isinstance(ch.get("text"), str):
+            return ch["text"]
+    for key in ("content", "response", "text", "output"):
+        v = data.get(key)
+        if isinstance(v, str) and v:
+            return v
+    msg = data.get("message")
+    if isinstance(msg, str):
+        return msg
+    if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+        return msg["content"]
+    return ""
 
 
 def _test_groq(config: dict, test_prompt: str) -> dict:

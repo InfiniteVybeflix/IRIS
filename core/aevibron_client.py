@@ -43,23 +43,41 @@ class CircuitBreaker:
             raise e
 
 class AevibronClient:
-    """Production-grade client for Aevibron AI Gateway."""
+    """Production-grade client for Aevibron AI Gateway.
+
+    Gateway facts (verified against the live service):
+      - Base URL: https://aevibron-gateway.vercel.app/api/v1
+      - Chat endpoint: POST /chat   (NOT /chat/completions)
+      - Models listing: GET  /models
+      - Auth: X-Aevibron-Key header
+    """
 
     def __init__(self):
-        self.base_url = config.AEVIBRON_BASE_URL.rstrip("/")
+        self.base_url = self._normalize_url(config.AEVIBRON_BASE_URL)
         self.api_key = config.AEVIBRON_API_KEY
         self.access_token = config.AEVIBRON_ACCESS_TOKEN
         self.session = requests.Session()
         self.session.headers.update({
             "Content-Type": "application/json",
+            "Accept": "application/json",
             "Authorization": f"Bearer {self.api_key}",
-            "X-IRIS-Token": self.access_token,
+            # The gateway authenticates with X-Aevibron-Key (falls back to
+            # the API key when no dedicated access token is configured).
+            "X-Aevibron-Key": self.access_token or self.api_key,
             "X-IRIS-Version": "1.0.0",
             "X-IRIS-Owner": config.OWNER_NAME
         })
         self.circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=60)
         self.request_count = 0
         self.error_count = 0
+
+    @staticmethod
+    def _normalize_url(url: str) -> str:
+        """Ensure the URL points at /api/v1 (the gateway's only API root)."""
+        u = (url or "").strip().strip("<>").rstrip("/")
+        if u and "/api/v1" not in u and not u.endswith("/v1"):
+            u = f"{u}/api/v1"
+        return u
 
     def _make_request(self, method: str, endpoint: str, **kwargs) -> Dict:
         url = f"{self.base_url}{endpoint}"
@@ -79,8 +97,19 @@ class AevibronClient:
 
                 if response.status_code == 401:
                     self.error_count += 1
-                    logger.error("401 Unauthorized — check API key or token")
-                    return {"error": True, "status_code": 401, "message": "Unauthorized. Check AEVIBRON_API_KEY and AEVIBRON_ACCESS_TOKEN."}
+                    logger.error("401 Unauthorized — check X-Aevibron-Key / API key")
+                    return {"error": True, "status_code": 401,
+                            "message": "Unauthorized. The Aevibron gateway requires a valid X-Aevibron-Key header."}
+
+                if response.status_code == 404:
+                    self.error_count += 1
+                    body = response.text[:200]
+                    if "<!DOCTYPE" in body or "<html" in body.lower():
+                        return {"error": True, "status_code": 404,
+                                "message": (f"Gateway endpoint not found: {url}. The gateway answered with an "
+                                            f"HTML page — the URL is likely missing the /api/v1 path. "
+                                            f"Expected base URL: https://aevibron-gateway.vercel.app/api/v1")}
+                    return {"error": True, "status_code": 404, "message": f"Not found: {url}"}
 
                 response.raise_for_status()
                 return response.json()
@@ -98,6 +127,9 @@ class AevibronClient:
                 if attempt == max_retries - 1:
                     return {"error": True, "status_code": response.status_code, "message": str(e)}
                 time.sleep(base_delay * (2 ** attempt))
+            except ValueError:
+                self.error_count += 1
+                return {"error": True, "message": f"Gateway returned a non-JSON response for {url}"}
             except Exception as e:
                 self.error_count += 1
                 if attempt == max_retries - 1:
@@ -121,7 +153,7 @@ class AevibronClient:
             payload["tool_choice"] = tool_choice
 
         try:
-            return self.circuit_breaker.call(self._make_request, "POST", "/chat/completions", json=payload)
+            return self.circuit_breaker.call(self._make_request, "POST", "/chat", json=payload)
         except Exception as e:
             return {"error": True, "message": str(e)}
 
@@ -145,7 +177,7 @@ class AevibronClient:
 
     def stream_chat(self, messages: List[Dict], model: str = None):
         payload = {"model": model or config.DEFAULT_MODEL, "messages": messages, "stream": True}
-        url = f"{self.base_url}/chat/completions"
+        url = f"{self.base_url}/chat"
         try:
             response = self.session.post(url, json=payload, stream=True, timeout=(10, 60))
             for line in response.iter_lines():
@@ -157,10 +189,13 @@ class AevibronClient:
                             break
                         try:
                             chunk = json.loads(data)
-                            content = chunk.get('choices', [{}])[0].get('delta', {}).get('content', '')
+                            choices = chunk.get('choices') or [{}]
+                            content = (choices[0].get('delta', {}) or {}).get('content', '')
+                            if not content:
+                                content = chunk.get('content', '')
                             if content:
                                 yield content
-                        except:
+                        except Exception:
                             pass
         except Exception as e:
             yield f"[Error: {str(e)}]"
@@ -169,9 +204,22 @@ class AevibronClient:
         return self._make_request("GET", "/models")
 
     def health_check(self) -> Dict:
+        """Probe the gateway. /health does not exist on the Aevibron gateway,
+        so the real /models endpoint is used: a 200 with a model list means
+        the gateway is up and the key is accepted."""
         try:
-            response = self.session.get(f"{self.base_url}/health", timeout=10)
-            return {"healthy": response.status_code == 200, "status_code": response.status_code}
+            response = self.session.get(f"{self.base_url}/models", timeout=10)
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                except ValueError:
+                    return {"healthy": False, "status_code": 200, "error": "Non-JSON response from /models"}
+                models = data if isinstance(data, list) else data.get("data") or data.get("models") or []
+                return {"healthy": True, "status_code": 200, "models": len(models)}
+            if response.status_code == 401:
+                return {"healthy": False, "status_code": 401,
+                        "error": "Gateway reachable but X-Aevibron-Key is missing or invalid"}
+            return {"healthy": False, "status_code": response.status_code, "error": response.text[:200]}
         except Exception as e:
             return {"healthy": False, "error": str(e)}
 

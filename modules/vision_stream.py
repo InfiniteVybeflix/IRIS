@@ -121,24 +121,61 @@ class VisionStream:
                 print(f"Stream error: {e}")
                 time.sleep(1)
 
-    def analyze_current_view(self, question: str = "What do you see?") -> Dict:
-        """Send current frame to IRIS for analysis."""
-        if not self.last_frame:
-            return {"success": False, "error": "No frame captured yet"}
+    def analyze_current_view(self, question: str = "What do you see?",
+                             frame_b64: str = None,
+                             transcript: str = "") -> Dict:
+        """Send a frame to the configured vision model for analysis.
+
+        frame_b64: base64 JPEG (with or without the data: URI prefix) captured
+        by the browser from the live screen/camera stream. When omitted, the
+        last server-side frame is used (only meaningful when self-hosted).
+        transcript: optional live speech transcript to give the model context.
+        """
+        frame = frame_b64 or self.last_frame
+        if not frame:
+            return {"success": False,
+                    "error": ("No frame available. Start the screen/camera stream first so a frame "
+                              "can be captured, then analyze.")}
+
+        # Accept full data URIs from the browser and strip the prefix.
+        if frame.startswith("data:"):
+            idx = frame.find("base64,")
+            frame = frame[idx + 7:] if idx != -1 else frame
 
         try:
-            from core.aevibron_client import aevibron
+            from core.llm_router import llm_router, extract_content
+
+            user_parts = [{"type": "text", "text": question}]
+            if transcript:
+                user_parts.append({"type": "text",
+                                   "text": f"Live audio transcript for context:\n{transcript[-2000:]}"})
+            user_parts.append({"type": "image_url",
+                               "image_url": {"url": f"data:image/jpeg;base64,{frame}"}})
             messages = [
-                {"role": "system", "content": "You are IRIS analyzing a live image. Describe what you see in detail."},
-                {"role": "user", "content": [
-                    {"type": "text", "text": question},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self.last_frame}"}}
-                ]}
+                {"role": "system", "content":
+                    "You are IRIS, analyzing a live frame from the user's screen or camera. "
+                    "Be concrete and specific about what is actually visible. If the frame is "
+                    "unreadable, say exactly that."},
+                {"role": "user", "content": user_parts},
             ]
-            response = aevibron.chat(messages, model=config.VISION_MODEL)
-            if response.get("error"):
-                return {"success": False, "error": response.get("message")}
-            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+            # Vision model name only applies to the Aevibron gateway; other
+            # providers fall back to their own configured default model.
+            model = None
+            try:
+                backend = llm_router.get_backend(None)
+                if getattr(backend, "name", "") == "aevibron":
+                    model = config.VISION_MODEL
+            except Exception:
+                model = config.VISION_MODEL
+
+            response = llm_router.chat(messages, model=model)
+            content = getattr(response, "content", "") or ""
+            if content.startswith("[aevibron error") or content.startswith("[error") \
+                    or "error HTTP" in content[:40]:
+                return {"success": False, "error": content}
+            if not content:
+                return {"success": False, "error": "The vision model returned an empty answer."}
             return {"success": True, "analysis": content}
         except Exception as e:
             return {"success": False, "error": str(e)}

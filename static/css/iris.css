@@ -507,22 +507,43 @@ select.input { cursor: pointer; }
 .apps-head { margin-bottom: 18px; }
 .apps-head h2 { font-size: 17px; font-weight: 650; }
 .apps-head p { margin-top: 4px; font-size: 13px; }
-.apps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.apps-section { margin-bottom: 26px; }
+.apps-section-title {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 12px;
+  font-size: 11px; font-weight: 650; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-3);
+}
+.apps-section-line { flex: 1; height: 1px; background: var(--border); }
+.apps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
 .app-card {
   position: relative; display: flex; flex-direction: column; gap: 4px;
   background: var(--bg2); border: 1px solid var(--border); border-radius: var(--r-lg);
-  padding: 16px; text-decoration: none; color: var(--text);
-  transition: border-color 0.12s ease, transform 0.12s ease, background 0.12s ease;
+  padding: 18px 16px 16px; text-decoration: none; color: var(--text);
+  transition: border-color 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
 }
-.app-card:hover { border-color: var(--border-strong); background: var(--bg3); transform: translateY(-1px); }
+.app-card:hover { border-color: var(--border-strong); transform: translateY(-2px); box-shadow: var(--shadow-2); }
 .app-icon {
-  width: 34px; height: 34px; display: grid; place-items: center;
-  border-radius: 9px; background: var(--bg3); color: var(--accent); margin-bottom: 8px;
+  width: 42px; height: 42px; display: grid; place-items: center;
+  border-radius: 12px; margin-bottom: 10px; color: var(--accent);
+  background: var(--accent-soft); transition: transform 0.14s ease;
 }
-.app-icon svg { width: 18px; height: 18px; }
-.app-name { font-weight: 620; font-size: 14px; }
+.app-card:hover .app-icon { transform: scale(1.06); }
+.app-icon svg { width: 21px; height: 21px; }
+/* Per-app accent tiles — consistent hue per app across the hub */
+.app-card[data-accent="blue"]   .app-icon { background: rgba(86, 97, 240, 0.14);  color: #5661f0; }
+.app-card[data-accent="amber"]  .app-icon { background: rgba(213, 160, 33, 0.16); color: #d5a021; }
+.app-card[data-accent="violet"] .app-icon { background: rgba(155, 100, 245, 0.15); color: #9b64f5; }
+.app-card[data-accent="green"]  .app-icon { background: rgba(46, 160, 90, 0.15);  color: #2ea05a; }
+.app-card[data-accent="teal"]   .app-icon { background: rgba(18, 163, 156, 0.15); color: #12a39c; }
+.app-card[data-accent="rose"]   .app-icon { background: rgba(230, 80, 120, 0.15); color: #e65078; }
+.app-card[data-accent="orange"] .app-icon { background: rgba(240, 130, 45, 0.16); color: #f0822d; }
+.app-name { font-weight: 640; font-size: 14.5px; }
 .app-desc { font-size: 12.5px; color: var(--text-3); }
-.app-badge { position: absolute; top: 12px; right: 12px; }
+.app-badge {
+  position: absolute; top: 14px; right: 14px;
+  font-size: 10.5px; font-weight: 600; color: var(--text-2);
+  background: var(--bg3); border: 1px solid var(--border);
+  padding: 2px 8px; border-radius: 999px;
+}
 
 /* ── Calendar ──────────────────────────────────────────────────────── */
 .cal-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
@@ -826,3 +847,44 @@ select.input { cursor: pointer; }
   .cal-ev { display: none; }
   .cal-cell.has-events::after { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); align-self: center; margin-top: 2px; }
 }
+
+/* ── IRIS logo images (static/iris-logo.png everywhere) ────────────── */
+.brand-logo { width: 26px; height: 26px; border-radius: 8px; object-fit: cover; display: block; }
+.hero-logo { width: 56px; height: 56px; border-radius: 16px; object-fit: cover; display: block; box-shadow: var(--shadow-1); }
+.avatar-logo { width: 16px; height: 16px; border-radius: 5px; object-fit: cover; display: block; }
+
+/* ── Vision: real video feed + transcript ──────────────────────────── */
+.vision-layout { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
+.vision-feed { position: relative; min-height: 240px; display: grid; place-items: center; background: var(--bg0); border-radius: var(--r-sm); overflow: hidden; }
+.vision-feed video { width: 100%; max-height: 480px; object-fit: contain; border-radius: var(--r-sm); background: #000; display: block; }
+.vision-placeholder { padding: 28px 20px; text-align: center; }
+.vision-placeholder p { margin: 0 0 6px; font-weight: 600; }
+.vision-placeholder .muted { font-weight: 400; font-size: 12.5px; max-width: 420px; margin: 0 auto; }
+.transcript-box {
+  max-height: 260px; overflow-y: auto; margin: 10px 0;
+  border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg0);
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 6px;
+}
+.transcript-line { display: flex; gap: 10px; font-size: 13px; line-height: 1.45; }
+.transcript-line .t-time { color: var(--text-3); font-family: var(--font-mono); font-size: 11px; padding-top: 2px; flex: none; }
+.transcript-line .t-text { color: var(--text); }
+.transcript-line.interim .t-text { color: var(--text-3); font-style: italic; }
+
+/* ── Phone: ADB connect guide + command console ────────────────────── */
+.adb-guide { margin: 10px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: var(--text-2); }
+.adb-guide li::marker { color: var(--accent); font-weight: 600; }
+.adb-guide strong { color: var(--text); font-weight: 620; }
+.adb-guide code, .phone-grid code {
+  font-family: var(--font-mono); font-size: 11.5px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px;
+}
+.guide-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+.guide-actions .input-sm { flex: 1; min-width: 180px; }
+.guide-console {
+  margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--r-sm); background: var(--bg0); color: var(--text);
+  white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow-y: auto;
+  font-size: 12px; line-height: 1.5;
+}
+.guide-console.err { border-color: var(--red); }
+.input.mono, .mono.input { font-family: var(--font-mono); font-size: 12.5px; }

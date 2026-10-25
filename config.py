@@ -113,7 +113,10 @@ class Config:
     OWNER_EMAIL = os.getenv("OWNER_EMAIL", "aevibron@gmail.com")
 
     # ─── Phone Bridge ───
-    PHONE_BRIDGE_ENABLED = os.getenv("PHONE_BRIDGE_ENABLED", "False").lower() == "true"
+    # Enabled by default: the bridge only ever works when the adb binary
+    # exists on the host AND a device is attached, so there is nothing to
+    # "enable" ahead of time. Set PHONE_BRIDGE_ENABLED=false to hard-disable.
+    PHONE_BRIDGE_ENABLED = os.getenv("PHONE_BRIDGE_ENABLED", "True").lower() == "true"
     ADB_DEVICE_ID = os.getenv("ADB_DEVICE_ID", "")
 
     # ─── Rate Limiting ───
