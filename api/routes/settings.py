@@ -13,13 +13,108 @@ Security:
   - No key is required for IRIS to work
 """
 import json
+import re
 import logging
+import unicodedata
 import urllib.request
 import urllib.error
+from urllib.parse import urlsplit, urlunsplit, quote
 from flask import Blueprint, request, jsonify
 
 logger = logging.getLogger(__name__)
 settings_bp = Blueprint("iris_settings", __name__)
+
+
+# ─── Input sanitization ─────────────────────────────────────────────────
+# RFC 2616 §4.2 mandates that HTTP header field-values must be encodable as
+# latin-1 (codepoints 0–255). When users copy-paste a gateway URL or API key
+# from a chat app, a website, a PDF, or a word processor, invisible Unicode
+# characters frequently sneak in (WORD JOINER \u2060, ZERO WIDTH SPACE \u200b,
+# BOM \ufeff, NO-BREAK SPACE \u00a0, IDEOGRAPHIC SPACE \u3000, etc.). These
+# crash urllib's latin-1 header encoder with the cryptic error:
+#   'latin-1' codec can't encode character '\u2060' in position N: ordinal
+# not in range(256)
+#
+# We strip those characters BEFORE the request is built, and we surface a
+# `sanitized` flag in the response so the user knows their pasted input
+# contained hidden characters and which cleaned value to keep using.
+_INVISIBLE_CHARS_RE = re.compile(
+    "["
+    "\u00ad"          # SOFT HYPHEN
+    "\u02dd"          # DOUBLE ACUTE ACCENT (sometimes used as invis. marker)
+    "\u115f"          # HANGUL CHOSEONG FILLER
+    "\u180e"          # MONGOLIAN VOWEL SEPARATOR
+    "\u2000-\u200f"   # EN QUAD..RIGHT-TO-LEFT MARK (incl. ZERO WIDTH SPACE \u200b)
+    "\u2028-\u202f"   # LINE SEPARATOR..RIGHT-TO-LEFT EMBEDDING
+    "\u205f-\u206f"   # various (incl. WORD JOINER \u2060, INVISIBLE TIMES \u2061..)
+    "\u3164"          # HANGUL FILLER
+    "\ufeff"          # ZERO WIDTH NO-BREAK SPACE / BOM
+    "\uffa0"          # HALFWIDTH HANGUL FILLER
+    "]"
+)
+_NBSP_AND_IDEOGRAPHIC_SPACE_RE = re.compile("[\u00a0\u2007\u202f\u3000]")
+
+
+def _strip_invisibles(value: str) -> str:
+    """NFKC-normalize and strip invisible Unicode characters from a string.
+
+    Returns the cleaned string. The original characters are removed (NBSP
+    and IDEOGRAPHIC SPACE are converted to regular ASCII spaces first so
+    spacing is preserved).
+    """
+    if not value:
+        return value
+    # NFKC first — collapses ligatures and compatibility chars into their
+    # canonical parts so e.g. "ﬁ" becomes "fi" and fullwidth digits become
+    # ASCII digits.
+    s = unicodedata.normalize("NFKC", value)
+    # Convert no-break / ideographic spaces to ASCII spaces before stripping.
+    s = _NBSP_AND_IDEOGRAPHIC_SPACE_RE.sub(" ", s)
+    # Now strip the truly invisible characters.
+    s = _INVISIBLE_CHARS_RE.sub("", s)
+    return s
+
+
+def _sanitize_header_value(value) -> str:
+    """Sanitize an HTTP header value: strip invisibles, then make latin-1-safe.
+
+    Per RFC 2616 §4.2, header field-values MUST be encodable as latin-1.
+    Returns a string guaranteed to encode as latin-1 (any residual non-
+    latin-1 char is replaced with '?').
+    """
+    s = _strip_invisibles(value or "")
+    if not isinstance(s, str):
+        s = str(s)
+    # Final safety net — replace any remaining non-latin-1 char with '?'.
+    return s.encode("latin-1", errors="replace").decode("latin-1")
+
+
+def _sanitize_url(url) -> str:
+    """Sanitize a URL: strip invisibles + ALL whitespace, then percent-encode
+    any non-ASCII in the path / query / fragment per RFC 3986.
+
+    URLs can never legitimately contain whitespace (a NO-BREAK SPACE inside
+    a hostname like ``aevibron-gateway\\u00a0.vercel.app`` must be removed,
+    not turned into ``%20``). So unlike header values, here we strip all
+    whitespace characters entirely.
+    """
+    s = _strip_invisibles(url or "")
+    if not s:
+        return s
+    # Strip ALL whitespace (regular space, tab, newline, CR, and any
+    # residual Unicode whitespace that survived NFKC normalization).
+    # Whitespace inside a URL is always the result of a paste artifact.
+    s = "".join(ch for ch in s if not unicodedata.category(ch).startswith("Z"))
+    parts = urlsplit(s)
+    # Path-safe chars per RFC 3986 §2.2 + §3.3. NOTE: do NOT default an
+    # empty path to '/' — that would add a trailing slash to bare-host
+    # URLs like "https://example.com", which then produces double slashes
+    # when the caller appends "/api/v1" (got "https://example.com//api/v1").
+    safe_path = quote(parts.path or "", safe="/%:@!$&'()*+,;=~")
+    safe_query = quote(parts.query or "", safe="/%:@!$&'()*+,;=~=?")
+    safe_frag = quote(parts.fragment or "", safe="/%:@!$&'()*+,;=~=?")
+    return urlunsplit((parts.scheme, parts.netloc, safe_path, safe_query, safe_frag))
+
 
 # ─── Provider definitions ──────────────────────────────────────────────
 # The list of supported providers, their fields, and whether they need a key
@@ -161,7 +256,8 @@ def test_connection():
         "success": true/false,
         "models": [{"id": "..."}, ...],
         "test_response": "..." (if test_prompt provided),
-        "error": "..." (if failed)
+        "error": "..." (if failed),
+        "sanitized": true (if invisible chars were stripped from input)
     }
     """
     data = request.get_json() or {}
@@ -227,46 +323,83 @@ def _test_openai_compat(provider: str, config: dict, test_prompt: str) -> dict:
     Provider notes (verified against the live Aevibron gateway):
       - Aevibron serves chat at POST /chat (not /chat/completions) and
         authenticates via the X-Aevibron-Key header.
+
+    All URL and header inputs are sanitized to strip invisible Unicode
+    characters (e.g. WORD JOINER \u2060) that crash urllib's latin-1
+    header encoder per RFC 2616 §4.2.
     """
     chat_path = "/chat/completions"
+    sanitized = False  # set True if we strip any invisible chars from input
+
     if provider == "aevibron":
-        url = (config.get("url") or "https://aevibron-gateway.vercel.app/api/v1").strip().strip("<>").rstrip("/")
+        raw_url = (config.get("url") or "https://aevibron-gateway.vercel.app/api/v1").strip().strip("<>").rstrip("/")
+        url = _sanitize_url(raw_url)
         # Users often paste the bare host — the gateway only serves /api/v1.
         if "/api/v1" not in url and not url.endswith("/v1"):
             url = f"{url}/api/v1"
-        key = config.get("key", "")
-        x_key = config.get("x_aevibron_key", "") or key  # the gateway accepts the API key in X-Aevibron-Key too
+        raw_key = config.get("key", "") or ""
+        key = _sanitize_header_value(raw_key)
+        raw_x_key = config.get("x_aevibron_key", "") or raw_key
+        x_key = _sanitize_header_value(raw_x_key)
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if key:
             headers["Authorization"] = f"Bearer {key}"
         if x_key:
             headers["X-Aevibron-Key"] = x_key
         chat_path = "/chat"
+        if url != _sanitize_url_keep_path(raw_url, provider) or key != raw_key or x_key != raw_x_key:
+            sanitized = True
     elif provider == "ollama_local":
-        host = config.get("host", "http://localhost:11434").rstrip("/")
+        raw_host = config.get("host", "http://localhost:11434").rstrip("/")
+        host = _sanitize_url(raw_host)
         url = f"{host}/v1"
         headers = {"Content-Type": "application/json"}
+        if host != raw_host.rstrip("/"):
+            sanitized = True
     elif provider == "ollama_cloud":
-        url = config.get("url", "").rstrip("/")
-        key = config.get("key", "")
+        raw_url = config.get("url", "").rstrip("/")
+        url = _sanitize_url(raw_url)
+        raw_key = config.get("key", "") or ""
+        key = _sanitize_header_value(raw_key)
         headers = {"Content-Type": "application/json"}
         if key:
             headers["Authorization"] = f"Bearer {key}"
+        if url != raw_url.rstrip("/") or key != raw_key:
+            sanitized = True
     elif provider == "openai":
-        url = config.get("url", "https://api.openai.com/v1").rstrip("/")
-        key = config.get("key", "")
+        raw_url = config.get("url", "https://api.openai.com/v1").rstrip("/")
+        url = _sanitize_url(raw_url)
+        raw_key = config.get("key", "") or ""
+        key = _sanitize_header_value(raw_key)
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
+        if url != raw_url.rstrip("/") or key != raw_key:
+            sanitized = True
     elif provider == "custom":
-        url = config.get("url", "").rstrip("/")
-        key = config.get("key", "")
+        raw_url = config.get("url", "").rstrip("/")
+        url = _sanitize_url(raw_url)
+        raw_key = config.get("key", "") or ""
+        key = _sanitize_header_value(raw_key)
         headers = {"Content-Type": "application/json"}
         if key:
             headers["Authorization"] = f"Bearer {key}"
+        if url != raw_url.rstrip("/") or key != raw_key:
+            sanitized = True
     else:
         return {"success": False, "error": f"Unknown provider: {provider}"}
 
     if not url:
         return {"success": False, "error": "URL is required"}
+
+    result_extras = {}
+    if sanitized:
+        result_extras["sanitized"] = True
+        result_extras["sanitized_url"] = url
+        result_extras["sanitized_message"] = (
+            "Stripped invisible Unicode characters (e.g. WORD JOINER \\u2060, ZERO WIDTH SPACE, "
+            "BOM, NBSP) from your input before sending — these characters crash Python's "
+            "latin-1 header encoder (RFC 2616 §4.2). Save the cleaned URL shown in "
+            "'sanitized_url' and use it as the canonical value in Settings."
+        )
 
     # Step 1: List models
     models = []
@@ -282,14 +415,54 @@ def _test_openai_compat(provider: str, config: dict, test_prompt: str) -> dict:
         elif isinstance(data.get("models"), list):
             models = data["models"]
     except urllib.error.HTTPError as e:
-        return {"success": False, "error": _friendly_http_error(models_url, e), "models": []}
+        result = {"success": False, "error": _friendly_http_error(models_url, e), "models": []}
+        result.update(result_extras)
+        return result
     except urllib.error.URLError as e:
-        return {"success": False, "error": f"Connection failed: {e.reason}", "models": []}
+        # The latin-1 encoder error (e.g. WORD JOINER in a header) surfaces
+        # here as a URLError whose .reason is a UnicodeEncodeError. Catch
+        # it explicitly so the user gets an actionable message instead of
+        # the raw codec traceback.
+        reason = e.reason
+        if isinstance(reason, UnicodeEncodeError):
+            result = {
+                "success": False,
+                "error": (
+                    f"Header encoding failed: {reason.__class__.__name__}: {reason}. "
+                    f"This means a URL or API key you pasted contains a non-ASCII "
+                    f"character that Python's latin-1 HTTP header encoder (RFC 2616 "
+                    f"§4.2) cannot send. Re-paste the URL/key as plain ASCII, or save "
+                    f"the 'sanitized_url' value shown here and use it in Settings."
+                ),
+                "models": [],
+            }
+        else:
+            result = {"success": False, "error": f"Connection failed: {reason}", "models": []}
+        result.update(result_extras)
+        return result
+    except UnicodeEncodeError as e:
+        # Belt-and-suspenders: if a non-latin-1 char somehow slipped past
+        # _sanitize_header_value (e.g. inside the request body), catch it
+        # here with an actionable message.
+        result = {
+            "success": False,
+            "error": (
+                f"Header encoding failed: {e}. A URL or API key you pasted "
+                f"contains a non-ASCII character. Re-paste as plain ASCII."
+            ),
+            "models": [],
+        }
+        result.update(result_extras)
+        return result
     except Exception as e:
-        return {"success": False, "error": str(e), "models": []}
+        result = {"success": False, "error": str(e), "models": []}
+        result.update(result_extras)
+        return result
 
     if not models:
-        return {"success": False, "error": "Connected, but no models were returned — check the key's model access.", "models": []}
+        result = {"success": False, "error": "Connected, but no models were returned — check the key's model access.", "models": []}
+        result.update(result_extras)
+        return result
 
     # Step 2: If test_prompt provided, send a minimal chat request
     test_response = ""
@@ -313,13 +486,27 @@ def _test_openai_compat(provider: str, config: dict, test_prompt: str) -> dict:
         except Exception as e:
             test_response = f"(chat test failed: {e})"
 
-    return {
+    result = {
         "success": True,
         "models": models if isinstance(models[0], dict) else [{"id": m} for m in models],
         "model_count": len(models),
         "test_model": model_id,
         "test_response": test_response[:200] if test_response else "",
     }
+    result.update(result_extras)
+    return result
+
+
+def _sanitize_url_keep_path(original_url: str, provider: str) -> str:
+    """Reproduce the URL normalization (without invisibles stripping) so we
+    can detect whether sanitization alone changed the value. Used only for
+    the Aevibron branch where the URL is augmented with /api/v1."""
+    if provider == "aevibron":
+        u = (original_url or "").strip().strip("<>").rstrip("/")
+        if u and "/api/v1" not in u and not u.endswith("/v1"):
+            u = f"{u}/api/v1"
+        return u
+    return (original_url or "").rstrip("/")
 
 
 def _extract_reply(data: dict) -> str:
@@ -348,7 +535,8 @@ def _extract_reply(data: dict) -> str:
 
 def _test_groq(config: dict, test_prompt: str) -> dict:
     """Test a Groq connection using the groq package."""
-    key = config.get("key", "")
+    raw_key = config.get("key", "") or ""
+    key = _sanitize_header_value(raw_key)
     if not key:
         return {"success": False, "error": "Groq API key is required"}
 
@@ -374,13 +562,20 @@ def _test_groq(config: dict, test_prompt: str) -> dict:
             )
             test_response = resp.choices[0].message.content or ""
 
-        return {
+        result = {
             "success": True,
             "models": model_list,
             "model_count": len(model_list),
             "test_model": model_id,
             "test_response": test_response[:200] if test_response else "",
         }
+        if key != raw_key:
+            result["sanitized"] = True
+            result["sanitized_message"] = (
+                "Stripped invisible Unicode characters from your Groq API key before "
+                "sending (RFC 2616 §4.2 mandates latin-1 header encoding)."
+            )
+        return result
     except ImportError:
         return {"success": False, "error": "groq package not installed (pip install groq)"}
     except Exception as e:
