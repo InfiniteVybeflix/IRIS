@@ -124,9 +124,12 @@ PROVIDERS = {
         "recommended": True,
         "description": "Aevibron's AI gateway — OpenAI-compatible proxy. Recommended for best results.",
         "fields": [
-            {"name": "url", "label": "Gateway URL", "type": "url", "placeholder": "https://aevibron-gateway.vercel.app/api/v1", "required": True},
-            {"name": "key", "label": "API Key", "type": "password", "placeholder": "Your Aevibron API key", "required": False},
-            {"name": "x_aevibron_key", "label": "X-Aevibron-Key (optional)", "type": "password", "placeholder": "X-Aevibron-Key header value", "required": False},
+            {"name": "url", "label": "Gateway URL", "type": "url", "placeholder": "https://aevibron-gateway.vercel.app/api/v1", "required": True,
+             "hint": "Include the /api/v1 path. If you paste the bare host, IRIS adds /api/v1 for you."},
+            {"name": "key", "label": "API Key", "type": "password", "placeholder": "Your Aevibron API key", "required": False,
+             "hint": "Sent as the Bearer token — this is the credential the gateway checks."},
+            {"name": "x_aevibron_key", "label": "X-Aevibron-Key (leave blank)", "type": "password", "placeholder": "Optional — only if your gateway uses a separate access key", "required": False,
+             "hint": "LEAVE BLANK unless Aevibron gave you a separate X-Aevibron-Key value. Your API key is already sent in this header automatically. A wrong value here causes HTTP 401."},
         ],
         "test_method": "openai_compat",
     },
@@ -305,9 +308,11 @@ def _friendly_http_error(url: str, e: urllib.error.HTTPError) -> str:
             detail = data.get("error") or data.get("message") or ""
         except Exception:
             detail = body_head
-        return (f"HTTP 401 Unauthorized — the server said: {detail or 'credentials missing'}. "
-                f"For the Aevibron gateway, paste your access key into the “X-Aevibron-Key” field "
-                f"(this is the key the gateway checks; a Bearer key alone is not enough).")
+        return (f"HTTP 401 Unauthorized — the gateway rejected the credentials ({detail or 'none provided'}). "
+                f"Most common causes: (1) the API Key field is empty or wrong — that is the credential "
+                f"the gateway checks; (2) you filled the X-Aevibron-Key field with something that is not "
+                f"exactly the gateway's access key — CLEAR that field and leave it blank, because IRIS "
+                f"already sends your API key in that header automatically.")
     if e.code == 403:
         return f"HTTP 403 Forbidden — the key was accepted but lacks access to {url}."
     if e.code == 429:

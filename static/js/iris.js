@@ -1568,6 +1568,12 @@
       Settings.current = sd || {};
       Settings.selected = Settings.current.llm_backend || 'auto';
       $('#auto-select').checked = Settings.current.auto_select !== false;
+      // Surface persistence problems loudly — an empty settings screen with
+      // no explanation looks like a bug (and used to be one).
+      if (sd && sd.storage_warning) toast(sd.storage_warning, 'warn', 'Settings storage');
+      else if (sd && sd.persistent === false) {
+        toast('Settings are stored on a non-persistent backend right now — values may not survive a refresh. Check DATABASE_URL / Postgres.', 'warn', 'Settings storage');
+      }
       renderProviderGrid();
       if (Settings.selected !== 'auto') renderProviderFields(Settings.selected);
     } catch (e) {
@@ -1606,9 +1612,11 @@
     $('#provider-fields').innerHTML = info.fields.map((f) => {
       const masked = cur[f.name + '_masked'] || cur[f.name] || '';
       const isMasked = typeof masked === 'string' && masked.includes('••');
+      const hint = f.hint ? `<span class="muted" style="font-size:11.5px;display:block;margin-top:4px">${esc(f.hint)}</span>` : '';
+      const savedAs = isMasked ? `<span class="muted" style="font-size:11.5px">Currently: ${esc(masked)} — leave blank to keep</span>` : '';
       return `<label class="field" style="margin-top:10px"><span>${esc(f.label)}${f.required ? ' *' : ''}</span>
         <input class="input" type="${f.type}" id="field_${esc(name)}_${esc(f.name)}" placeholder="${esc(f.placeholder || '')}" value="${isMasked ? '' : esc(masked)}" autocomplete="off">
-        ${isMasked ? `<span class="muted" style="font-size:11.5px">Currently: ${esc(masked)} — leave blank to keep</span>` : ''}</label>`;
+        ${savedAs}${hint}</label>`;
     }).join('');
   }
   function gatherConfig(provider) {
