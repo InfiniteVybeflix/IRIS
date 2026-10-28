@@ -36,17 +36,33 @@
   }
 
   const Modal = {
+    overlay: null,
+    _el(id) { const el = $(id); if (!el) console.warn('[IRIS] missing element:', id); return el; },
     open(title, node) {
-      $('#modal-title').textContent = title;
-      $('#modal-body').innerHTML = '';
-      $('#modal-body').appendChild(node);
-      $('#modal-overlay').hidden = false;
+      const t = this._el('#modal-title'), b = this._el('#modal-body'), ov = this._el('#modal-overlay');
+      if (!t || !b || !ov) return;
+      t.textContent = title;
+      b.innerHTML = '';
+      b.appendChild(node);
+      ov.style.removeProperty('display');   // clear any inline fallback from close()
+      ov.hidden = false;
+      document.documentElement.classList.add('modal-open');   // lock page scroll
     },
-    close() { $('#modal-overlay').hidden = true; $('#modal-body').innerHTML = ''; },
+    close() {
+      const ov = this._el('#modal-overlay'), b = this._el('#modal-body');
+      // Belt-and-suspenders: hidden attr + inline display:none — survives any
+      // CSS load failure or specificity conflict, so the page can NEVER stick.
+      if (ov) { ov.hidden = true; ov.style.display = 'none'; }
+      if (b) b.innerHTML = '';
+      document.documentElement.classList.remove('modal-open');
+    },
   };
-  $('#modal-close').addEventListener('click', () => Modal.close());
-  $('#modal-overlay').addEventListener('click', (e) => { if (e.target === e.currentTarget) Modal.close(); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal-overlay').hidden) Modal.close(); });
+  Modal.overlay = $('#modal-overlay');
+  $('#modal-close')?.addEventListener('click', () => Modal.close());
+  if (Modal.overlay) Modal.overlay.addEventListener('click', (e) => { if (e.target === Modal.overlay) Modal.close(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && Modal.overlay && !Modal.overlay.hidden) Modal.close();
+  });
 
   /* ── API helper ──────────────────────────────────────────────────────── */
   async function api(path, opts = {}) {

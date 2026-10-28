@@ -4,6 +4,17 @@
    Rising terminals for live agent & tool actions
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ── Defensive reset (MUST stay first) ─────────────────────────────────────
+   The `hidden` attribute must ALWAYS win. Without this rule, any component
+   rule that sets `display:` (e.g. `.modal-overlay { display:grid }`) silently
+   overrides the browser's default `[hidden] { display:none }` — which made
+   the modal overlay visible on page load, empty and un-closable, freezing
+   the whole page behind it. */
+[hidden] { display: none !important; }
+
+/* Scroll lock while a modal is open */
+html.modal-open, html.modal-open body { overflow: hidden; }
+
 /* ── Fonts (bundled) ─────────────────────────────────────────────────────── */
 @font-face {
   font-family: 'Inter';
@@ -1267,6 +1278,7 @@ textarea.input { resize: vertical; }
   padding: 20px;
 }
 @keyframes fadeIn { from { opacity: 0; } }
+.modal-overlay[hidden] { display: none; animation: none; } /* explicit close-state guarantee */
 .modal {
   background: var(--panel);
   border: 1px solid var(--border-strong);

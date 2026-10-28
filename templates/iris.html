@@ -7,7 +7,7 @@
     <meta name="description" content="IRIS — a multi-agent AI workspace: chat, autonomous agents, and built-in apps.">
     <meta name="theme-color" content="#08090c">
     <link rel="preload" as="image" href="{{ url_for('static', filename='iris-logo.png') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/iris.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/iris.css', v=3) }}">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='iris-logo.png') }}">
     <link rel="alternate icon" href="{{ url_for('static', filename='icons/favicon.ico') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='iris-logo.png') }}">
@@ -714,7 +714,7 @@
 <!-- ─────────── Toasts ─────────── -->
 <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
 
-<script src="{{ url_for('static', filename='js/iris.js') }}"></script>
+<script src="{{ url_for('static', filename='js/iris.js', v=3) }}"></script>
 <script>
   // Remove the no-anim guard after first paint so transitions/animations
   // don't fire on load (causes a visible theme-flash from default → user pref).
