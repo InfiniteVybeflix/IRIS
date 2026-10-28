@@ -13,12 +13,39 @@ from modules.proactive_engine import proactive_engine
 
 chat_bp = Blueprint('chat', __name__, url_prefix='/api/chat')
 
+
+def _extract_provider_override(data: dict) -> dict:
+    """Pull a per-request provider config from the chat request body.
+
+    The frontend saves settings to localStorage as a fallback when the
+    server has no persistent backend (Vercel + no Postgres). Those saved
+    values are sent with each chat request as `provider_config` so the
+    orchestrator can use them for THIS request even though they were
+    never persisted server-side. Settings that ARE persisted server-side
+    take precedence — the override only fills in gaps.
+    """
+    pc = data.get("provider_config") or {}
+    if not isinstance(pc, dict):
+        return {}
+    # Only honor known Aevibron fields — never trust arbitrary keys.
+    out = {}
+    for k in ("url", "key", "x_aevibron_key"):
+        v = pc.get(k)
+        if v and isinstance(v, str):
+            out[k] = v
+    # Also allow the user to specify a model per-request
+    if pc.get("model"):
+        out["model"] = str(pc["model"])
+    return out
+
+
 @chat_bp.route('', methods=['POST'])
 @rate_limit
 def chat():
     data = request.get_json() or {}
     user_input = data.get('message', '')
     session_id = data.get('session_id') or str(uuid.uuid4())
+    provider_override = _extract_provider_override(data)
 
     if not user_input:
         return jsonify({"success": False, "error": "No message provided"}), 400
@@ -34,11 +61,11 @@ def chat():
 
     results = []
     final = None
-    # NOTE: orchestrator.process() accepts (user_input, session_id) only.
-    # The proactive context summary is recorded above via
-    # proactive_engine.record_interaction/get_context_summary and is
-    # gathered internally by the orchestrator's OBSERVE phase.
-    for update in orchestrator.process(user_input, session_id):
+    # NOTE: orchestrator.process() accepts (user_input, session_id, provider_override).
+    # The override is filled from localStorage-saved settings on the client
+    # when the server has no persistent backend — so saving settings in
+    # the UI actually drives the model end-to-end, even on Vercel sans DB.
+    for update in orchestrator.process(user_input, session_id, provider_override=provider_override):
         if update.get("final"):
             final = update
         else:
@@ -69,9 +96,10 @@ def chat_stream():
     data = request.get_json() or {}
     user_input = data.get('message', '')
     session_id = data.get('session_id') or str(uuid.uuid4())
+    provider_override = _extract_provider_override(data)
 
     def generate():
-        for update in orchestrator.process(user_input, session_id):
+        for update in orchestrator.process(user_input, session_id, provider_override=provider_override):
             yield f"data: {json.dumps(update)}\n\n"
         yield "data: [DONE]\n\n"
 

@@ -1,8 +1,14 @@
 """IRIS v1 Hybrid Orchestrator — Bulletproof Agent Brain with Structured Output"""
 import json
+import os
+import re
 import time
 import uuid
-from typing import Dict, List, Any, Generator
+import unicodedata
+import urllib.request
+import urllib.error
+import logging
+from typing import Dict, List, Any, Generator, Optional
 from datetime import datetime
 from config import config
 from core.models import (
@@ -11,35 +17,223 @@ from core.models import (
 )
 from core.tool_registry import tool_registry
 
-class AevibronClient:
-    """Lightweight client wrapper."""
-    def __init__(self):
-        import requests
-        self.session = requests.Session()
-        self.session.headers.update({
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {config.AEVIBRON_API_KEY}",
-        })
-        self.base_url = config.AEVIBRON_BASE_URL.rstrip("/")
+logger = logging.getLogger(__name__)
 
-    def chat(self, messages, model=None, temperature=0.7, max_tokens=4000, tools=None, tool_choice="auto"):
-        payload = {"model": model or config.DEFAULT_MODEL, "messages": messages, "temperature": temperature, "max_tokens": max_tokens, "stream": False}
+
+# ─── Input sanitization (mirrors api/routes/settings.py) ────────────────
+# These invisible Unicode characters crash urllib's latin-1 header encoder
+# (RFC 2616 §4.2) with the cryptic "'latin-1' codec can't encode character"
+# error. They sneak in via copy-paste from chat apps, PDFs, word processors.
+_INVISIBLE_CHARS_RE = re.compile(
+    "["
+    "\u00ad\u02dd\u115f\u180e"
+    "\u2000-\u200f"
+    "\u2028-\u202f"
+    "\u205f-\u206f"
+    "\u3164\ufeff\uffa0"
+    "]"
+)
+_NBSP_RE = re.compile("[\u00a0\u2007\u202f\u3000]")
+
+
+def _strip_invisibles(value: str) -> str:
+    if not value:
+        return value
+    s = unicodedata.normalize("NFKC", value)
+    s = _NBSP_RE.sub(" ", s)
+    return _INVISIBLE_CHARS_RE.sub("", s)
+
+
+def _sanitize_header_value(value) -> str:
+    """RFC 2616 §4.2: header values must be latin-1 encodable."""
+    s = _strip_invisibles(value or "")
+    if not isinstance(s, str):
+        s = str(s)
+    return s.encode("latin-1", errors="replace").decode("latin-1")
+
+
+def _sanitize_url(url) -> str:
+    """Strip invisibles + ALL whitespace, percent-encode residual non-ASCII."""
+    s = _strip_invisibles(url or "")
+    if not s:
+        return s
+    # URLs can never legitimately contain whitespace — a paste-artifact space
+    # inside a hostname must be removed, not turned into %20.
+    s = "".join(ch for ch in s if not unicodedata.category(ch).startswith("Z"))
+    return s.strip().strip("<>").rstrip("/")
+
+
+def _normalize_aevibron_url(url: str) -> str:
+    """Ensure the URL points at /api/v1 (the gateway's only API root)."""
+    u = _sanitize_url(url)
+    if not u:
+        return u
+    if "/api/v1" not in u and not u.endswith("/v1"):
+        u = f"{u}/api/v1"
+    return u
+
+
+def _load_provider_settings() -> Dict[str, Any]:
+    """Read the Aevibron provider config from settings_manager (which reads
+    Postgres / JSON file). Falls back to env vars if settings_manager is
+    unavailable. Returns {url, key, x_aevibron_key}.
+
+    This is called per-request so a settings save takes effect immediately,
+    without restarting the serverless function.
+    """
+    cfg: Dict[str, Any] = {}
+    try:
+        from modules.settings_manager import get_provider_config
+        cfg = get_provider_config("aevibron") or {}
+    except Exception as e:
+        logger.debug("[orchestrator] settings_manager unavailable: %s", e)
+    url = cfg.get("url", "") or os.environ.get("AEVIBRON_BASE_URL", config.AEVIBRON_BASE_URL)
+    key = cfg.get("key", "") or os.environ.get("AEVIBRON_API_KEY", config.AEVIBRON_API_KEY)
+    x_key = cfg.get("x_aevibron_key", "") or os.environ.get("AEVIBRON_ACCESS_TOKEN", config.AEVIBRON_ACCESS_TOKEN)
+    return {"url": url, "key": key, "x_aevibron_key": x_key}
+
+
+class AevibronClient:
+    """Production-grade Aevibron gateway client.
+
+    Key facts (verified against the live service):
+      - Chat endpoint: POST /chat   (NOT /chat/completions — that returns 404)
+      - Models listing: GET /models
+      - Auth: X-Aevibron-Key header (the API key is sent in this header by
+        default; if a separate access token is configured, that takes precedence)
+      - Base URL must include /api/v1 — a bare host returns 404 with an HTML
+        page (the Next.js app shell, not JSON)
+
+    Configuration is read fresh per request from settings_manager (which
+    reads Postgres / JSON file), so a settings save takes effect immediately.
+    An optional `provider_override` arg lets callers (e.g. /api/chat)
+    pass a per-request config from localStorage when no server-side
+    persistent backend is available.
+    """
+
+    def __init__(self):
+        # Cached for the lifetime of this singleton, but _resolve() refreshes
+        # on every call so saved settings take effect immediately.
+        self.request_count = 0
+        self.error_count = 0
+
+    def _resolve(self, override: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+        """Build (url, key, x_key) for this request from override → settings → env."""
+        if override and (override.get("url") or override.get("key") or override.get("x_aevibron_key")):
+            url = override.get("url", "") or os.environ.get("AEVIBRON_BASE_URL", config.AEVIBRON_BASE_URL)
+            key = override.get("key", "") or os.environ.get("AEVIBRON_API_KEY", config.AEVIBRON_API_KEY)
+            x_key = override.get("x_aevibron_key", "") or os.environ.get("AEVIBRON_ACCESS_TOKEN", config.AEVIBRON_ACCESS_TOKEN)
+        else:
+            s = _load_provider_settings()
+            url, key, x_key = s["url"], s["key"], s["x_aevibron_key"]
+        url = _normalize_aevibron_url(url)
+        key = _sanitize_header_value(key)
+        x_key = _sanitize_header_value(x_key)
+        return {"url": url, "key": key, "x_aevibron_key": x_key}
+
+    def _headers(self, resolved: Dict[str, str]) -> Dict[str, str]:
+        h = {"Content-Type": "application/json", "Accept": "application/json"}
+        if resolved["key"]:
+            h["Authorization"] = f"Bearer {resolved['key']}"
+        # The gateway authenticates with X-Aevibron-Key. When the user has
+        # NOT set a separate access token, we send the API key here too —
+        # that's the credential the gateway checks.
+        x_key = resolved["x_aevibron_key"] or resolved["key"]
+        if x_key:
+            h["X-Aevibron-Key"] = x_key
+        h["X-IRIS-Version"] = "1.0.0"
+        h["X-IRIS-Owner"] = config.OWNER_NAME
+        return h
+
+    def chat(self, messages, model=None, temperature=0.7, max_tokens=4000,
+             tools=None, tool_choice="auto", provider_override: Optional[Dict[str, Any]] = None) -> Dict:
+        """Send a chat request to POST {base_url}/chat.
+
+        Returns an OpenAI-shaped dict so existing callers (which expect
+        `response["choices"][0]["message"]["content"]`) keep working.
+        """
+        resolved = self._resolve(provider_override)
+        if not resolved["url"]:
+            return {"error": True, "message": "No Aevibron gateway URL configured — set one in Settings."}
+
+        payload = {
+            "model": model or config.DEFAULT_MODEL,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = tool_choice
+
+        body = json.dumps(payload).encode("utf-8")
+        # /chat — NOT /chat/completions. The OpenAI path returns 404 on the
+        # Aevibron gateway.
+        url = f"{resolved['url']}/chat"
+        headers = self._headers(resolved)
+        self.request_count += 1
         try:
-            r = self.session.post(f"{self.base_url}/chat/completions", json=payload, timeout=60)
-            r.raise_for_status()
-            return r.json()
+            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            # Normalize: if the gateway returned a flat {content: ...} shape,
+            # wrap it as an OpenAI choices[] so the orchestrator's existing
+            # extract logic works unchanged.
+            if isinstance(data, dict) and "choices" not in data:
+                content = (data.get("content") or data.get("response")
+                           or data.get("text") or data.get("output") or "")
+                if isinstance(content, list):
+                    content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+                data = {"choices": [{"message": {"role": "assistant", "content": str(content)},
+                                     "finish_reason": "stop"}],
+                        "model": data.get("model", model or config.DEFAULT_MODEL),
+                        "usage": data.get("usage", {})}
+            return data
+        except urllib.error.HTTPError as e:
+            self.error_count += 1
+            body_text = ""
+            try:
+                body_text = e.read().decode("utf-8", errors="replace")[:300]
+            except Exception:
+                pass
+            is_html = "<!doctype" in body_text.lower() or "<html" in body_text.lower()
+            if e.code == 404 and is_html:
+                msg = (f"HTTP 404 — the gateway answered with an HTML page at {url}. "
+                       f"That means the URL is wrong: the chat endpoint is POST /chat (not "
+                       f"/chat/completions), and the base URL must include /api/v1. "
+                       f"Expected: https://aevibron-gateway.vercel.app/api/v1")
+            elif e.code == 401:
+                msg = (f"HTTP 401 Unauthorized — the gateway rejected the credentials. "
+                       f"Make sure the API Key field in Settings is set correctly. "
+                       f"Leave X-Aevibron-Key blank unless Aevibron gave you a separate "
+                       f"access key (IRIS already sends your API key in that header). "
+                       f"Detail: {body_text}")
+            elif e.code == 429:
+                msg = "HTTP 429 — rate limited by the gateway. Wait a moment and try again."
+            else:
+                msg = f"HTTP {e.code} from {url}: {body_text}"
+            return {"error": True, "status_code": e.code, "message": msg}
+        except urllib.error.URLError as e:
+            self.error_count += 1
+            reason = e.reason
+            if isinstance(reason, UnicodeEncodeError):
+                return {"error": True, "message": (
+                    f"Header encoding failed: {reason}. A URL or API key you pasted "
+                    f"contains a non-ASCII character that Python's latin-1 header encoder "
+                    f"cannot send (RFC 2616 §4.2). Re-paste as plain ASCII.")}
+            return {"error": True, "message": f"Connection failed: {reason}"}
         except Exception as e:
+            self.error_count += 1
             return {"error": True, "message": str(e)}
 
-    def think(self, prompt, context=""):
+    def think(self, prompt, context="", provider_override: Optional[Dict[str, Any]] = None):
         messages = [
             {"role": "system", "content": self._get_system_prompt()},
             {"role": "user", "content": f"Context: {context}\n\nTask: {prompt}\n\nThink deeply. Consider all options. Evaluate pros and cons. Then decide the best approach. Respond ONLY with valid JSON matching the schema."}
         ]
-        return self.chat(messages, model=config.DEEP_MODEL, temperature=0.8, max_tokens=4000)
+        return self.chat(messages, model=config.DEEP_MODEL, temperature=0.8, max_tokens=4000,
+                         provider_override=provider_override)
 
     def _get_system_prompt(self):
         return f"""You are IRIS — Infinite Vybeflix's personal AI software engineering partner.
@@ -74,7 +268,8 @@ class AgentOrchestrator:
         self.current_task = None
         self.experience_db = []  # In-memory; persist to disk in production
 
-    def process(self, user_input: str, session_id: str = None) -> Generator[Dict, None, None]:
+    def process(self, user_input: str, session_id: str = None,
+                provider_override: Optional[Dict[str, Any]] = None) -> Generator[Dict, None, None]:
         session_id = session_id or str(uuid.uuid4())
         task_id = f"task_{int(time.time())}_{uuid.uuid4().hex[:6]}"
 
@@ -84,11 +279,11 @@ class AgentOrchestrator:
 
         # === PHASE 2: THINK (Structured) ===
         yield self._status("thinking", "Analyzing your request...", 10).dict()
-        reasoning = self._think_structured(user_input, context)
+        reasoning = self._think_structured(user_input, context, provider_override=provider_override)
 
         if reasoning.type == "direct_answer":
             yield self._status("answering", "Formulating response...", 20).dict()
-            answer = self._generate_answer(user_input, context)
+            answer = self._generate_answer(user_input, context, provider_override=provider_override)
             yield self._status("complete", answer, 100, final=True, data={"answer": answer}).dict()
             return
 
@@ -107,7 +302,7 @@ class AgentOrchestrator:
 
             if not step_result.success:
                 yield self._status("recovering", f"Issue: {step_result.error}. Attempting fix...", progress).dict()
-                recovery = self._recover_step(step, step_result, context, reasoning)
+                recovery = self._recover_step(step, step_result, context, reasoning, provider_override=provider_override)
                 if recovery:
                     results.append(recovery)
 
@@ -133,7 +328,8 @@ class AgentOrchestrator:
             "current_time": datetime.now().isoformat(),
         }
 
-    def _think_structured(self, user_input: str, context: Dict) -> ReasoningPlan:
+    def _think_structured(self, user_input: str, context: Dict,
+                          provider_override: Optional[Dict[str, Any]] = None) -> ReasoningPlan:
         """Use structured output for reasoning — no string parsing."""
         thinking_prompt = f"""Analyze this request and produce a structured plan.
 
@@ -176,7 +372,8 @@ Respond with a JSON object matching this exact schema:
   "confidence": 0.85
 }}"""
 
-        response = self.client.think(thinking_prompt, context=json.dumps(context, default=str))
+        response = self.client.think(thinking_prompt, context=json.dumps(context, default=str),
+                                       provider_override=provider_override)
 
         if response.get("error"):
             return ReasoningPlan(
@@ -223,12 +420,13 @@ Respond with a JSON object matching this exact schema:
                 confidence=0.5
             )
 
-    def _generate_answer(self, user_input: str, context: Dict) -> str:
+    def _generate_answer(self, user_input: str, context: Dict,
+                         provider_override: Optional[Dict[str, Any]] = None) -> str:
         messages = [
             {"role": "system", "content": self.client._get_system_prompt()},
             {"role": "user", "content": user_input}
         ]
-        response = self.client.chat(messages, temperature=0.7)
+        response = self.client.chat(messages, temperature=0.7, provider_override=provider_override)
         if response.get("error"):
             return f"Connection issue: {response.get('message', 'Unknown')}"
         return response.get("choices", [{}])[0].get("message", {}).get("content", "Thinking...")
@@ -256,7 +454,8 @@ Respond with a JSON object matching this exact schema:
         except Exception as e:
             return ToolResult(success=False, error=str(e), tool=tool_name, params=params)
 
-    def _recover_step(self, step: PlanStep, failed_result: ToolResult, context: Dict, reasoning: ReasoningPlan) -> ToolResult:
+    def _recover_step(self, step: PlanStep, failed_result: ToolResult, context: Dict, reasoning: ReasoningPlan,
+                      provider_override: Optional[Dict[str, Any]] = None) -> ToolResult:
         """Attempt recovery with alternative approaches."""
         recovery_prompt = f"""The following step failed:
 Tool: {step.tool}
@@ -271,7 +470,7 @@ Respond with JSON:
         response = self.client.chat([
             {"role": "system", "content": "You are a recovery specialist."},
             {"role": "user", "content": recovery_prompt}
-        ], temperature=0.7, max_tokens=1000)
+        ], temperature=0.7, max_tokens=1000, provider_override=provider_override)
 
         if response.get("error"):
             return ToolResult(success=False, error="Recovery failed: API error", tool="recovery", params={})
@@ -344,11 +543,15 @@ Respond with JSON:
         )
         self.experience_db.append(experience)
 
-        # Persist to file
-        exp_path = f"{config.DATA_DIR}/experiences/{task_id}.json"
-        os.makedirs(os.path.dirname(exp_path), exist_ok=True)
-        with open(exp_path, 'w') as f:
-            f.write(experience.json())
+        # Persist to file (best-effort — never break the chat flow if /tmp
+        # is read-only or pydantic refuses to serialize).
+        try:
+            exp_path = f"{config.DATA_DIR}/experiences/{task_id}.json"
+            os.makedirs(os.path.dirname(exp_path), exist_ok=True)
+            with open(exp_path, 'w') as f:
+                f.write(experience.json())
+        except Exception as e:
+            logger.debug("[orchestrator] experience persist skipped: %s", e)
 
     def _generate_report(self, user_input: str, results: List[ToolResult], verification: VerificationResult, reasoning: ReasoningPlan) -> str:
         if verification.success:

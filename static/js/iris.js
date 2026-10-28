@@ -117,14 +117,105 @@
     return data;
   }
 
-  /* ── Theme ────────────────────────────────────────────────────────── */
-  function applyTheme(t) {
-    document.documentElement.dataset.theme = t;
-    try { localStorage.setItem('iris-theme', t); } catch { /* private mode */ }
+  /* ── Theme — 3-state cycle (dark → light → system → dark) ───────────
+     The toggle keeps a `data-theme-pref` attribute on <html> for the
+     user's CHOICE (dark / light / system). The actual `data-theme`
+     attribute is the APPLIED theme (dark / light). When the user
+     picks "system", JS reads `prefers-color-scheme` and applies
+     dark or light accordingly — and listens for OS-level changes so
+     flipping macOS between light and dark updates IRIS live. */
+  const THEME_ORDER = ['dark', 'light', 'system'];
+  const THEME_ICON = { dark: '🌙 Dark', light: '☀️ Light', system: '🖥️ System' };
+  function _resolveSystemTheme() {
+    return (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)
+      ? 'light' : 'dark';
   }
-  applyTheme((() => { try { return localStorage.getItem('iris-theme') || 'dark'; } catch { return 'dark'; } })());
-  $('#theme-toggle').addEventListener('click', () =>
-    applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+  function applyTheme(pref) {
+    // pref is the user's choice: 'dark' | 'light' | 'system'
+    pref = THEME_ORDER.includes(pref) ? pref : 'dark';
+    const applied = pref === 'system' ? _resolveSystemTheme() : pref;
+    document.documentElement.dataset.theme = applied;
+    document.documentElement.dataset.themePref = pref;
+    try { localStorage.setItem('iris-theme-pref', pref); } catch { /* private mode */ }
+    const btn = $('#theme-toggle');
+    if (btn) btn.title = `Theme: ${pref} (applied: ${applied}). Click to switch.`;
+  }
+  // Restore saved pref, default to dark for first-time visitors
+  applyTheme((() => { try { return localStorage.getItem('iris-theme-pref') || 'dark'; } catch { return 'dark'; } })());
+  // Cycle dark → light → system → dark on click
+  $('#theme-toggle').addEventListener('click', () => {
+    const cur = document.documentElement.dataset.themePref || 'dark';
+    const next = THEME_ORDER[(THEME_ORDER.indexOf(cur) + 1) % THEME_ORDER.length];
+    applyTheme(next);
+    toast(`Theme: ${next}`, 'info', 'IRIS');
+  });
+  // When the OS changes light/dark preference, update IRIS live IF the
+  // user is in 'system' mode. (If they explicitly picked dark or light,
+  // we respect that and don't override.)
+  if (window.matchMedia) {
+    try {
+      const mql = window.matchMedia('(prefers-color-scheme: light)');
+      const handler = () => {
+        if (document.documentElement.dataset.themePref === 'system') applyTheme('system');
+      };
+      if (mql.addEventListener) mql.addEventListener('change', handler);
+      else if (mql.addListener) mql.addListener(handler);  // Safari < 14
+    } catch { /* old browser */ }
+  }
+
+  /* ── LocalSettings — browser-local fallback for provider config ──────
+     When the server has no persistent backend (Vercel + no Postgres), the
+     backend save returns `{success: false, ephemeral: true}`. In that case
+     the frontend stores the user's settings here in localStorage, AND
+     sends them with every chat request as `provider_config` so the AI
+     actually uses them for that request.
+
+     This is the bridge that makes "I saved settings but they reset on
+     refresh" impossible — even when the server has no DB, the browser
+     remembers and the orchestrator reads them per-request.
+     */
+  const LocalSettings = {
+    KEY: 'iris-provider-config-v1',
+    _cache: null,
+    load() {
+      if (this._cache) return this._cache;
+      try { this._cache = JSON.parse(localStorage.getItem(this.KEY) || '{}'); }
+      catch { this._cache = {}; }
+      return this._cache;
+    },
+    save(cfg) {
+      // cfg: {providers: {aevibron: {url, key, x_aevibron_key}}, llm_backend, auto_select}
+      try {
+        localStorage.setItem(this.KEY, JSON.stringify(cfg));
+        this._cache = cfg;
+        return true;
+      } catch (e) {
+        console.warn('[IRIS] localStorage save failed', e);
+        return false;
+      }
+    },
+    /** Returns the Aevibron provider config to send with chat requests.
+        Only includes fields that are actually set, so we never send empty
+        strings that would override server-side values. */
+    getProviderConfig() {
+      const cfg = this.load() || {};
+      const aev = (cfg.providers && cfg.providers.aevibron) || {};
+      const out = {};
+      if (aev.url) out.url = aev.url;
+      if (aev.key) out.key = aev.key;
+      if (aev.x_aevibron_key) out.x_aevibron_key = aev.x_aevibron_key;
+      return out;
+    },
+    clear() {
+      try { localStorage.removeItem(this.KEY); } catch { /* noop */ }
+      this._cache = {};
+    },
+    /** Returns true if there are any locally-saved Aevibron creds. */
+    hasLocal() {
+      const cfg = this.getProviderConfig();
+      return Boolean(cfg.url || cfg.key || cfg.x_aevibron_key);
+    },
+  };
 
   /* ── Sidebar (mobile drawer) ──────────────────────────────────────── */
   const sidebar = $('#sidebar'), scrim = $('#scrim');
@@ -297,9 +388,16 @@
 
       this.ctrl = new AbortController();
       try {
+        // Send locally-saved provider config with every chat request so the
+        // orchestrator uses the user's saved Aevibron URL/key even when
+        // the server has no persistent backend (Vercel + no Postgres).
+        const providerConfig = LocalSettings.getProviderConfig();
         const d = await api('/api/chat', {
           method: 'POST', timeout: 180000,
-          body: { message: text, session_id: this.sessionId || undefined },
+          body: Object.assign(
+            { message: text, session_id: this.sessionId || undefined },
+            Object.keys(providerConfig).length ? { provider_config: providerConfig } : {}
+          ),
         });
         must(d, 'Chat');
         typing.remove();
@@ -1670,9 +1768,36 @@
           providers: Settings.selected !== 'auto' ? { [Settings.selected]: gatherConfig(Settings.selected) } : {},
           integrations: collectIntegrations(),
         };
+    // ALWAYS mirror the saved Aevibron config to localStorage so the next
+    // chat request picks it up via LocalSettings.getProviderConfig(). This
+    // is the bridge that makes settings drive the AI even when the server
+    // has no persistent backend.
+    if (!integrationsOnly && Settings.selected === 'aevibron') {
+      const cfg = gatherConfig('aevibron');
+      if (cfg.url || cfg.key || cfg.x_aevibron_key) {
+        LocalSettings.save({
+          llm_backend: Settings.selected,
+          auto_select: $('#auto-select').checked,
+          providers: { aevibron: cfg },
+        });
+      }
+    }
     try {
       const d = must(await api('/api/iris/settings', { method: 'POST', body: payload }), 'Save settings');
-      if (d.success !== false) { toast('Settings saved.', 'success'); initProviderPane(); }
+      if (d.success !== false) {
+        // Server persisted (Postgres or local JSON file). Refresh the UI.
+        toast('Settings saved.', 'success');
+        initProviderPane();
+      } else if (d.ephemeral) {
+        // Server is on Vercel with no DB — but we already mirrored to
+        // localStorage above, so the chat will still use these creds.
+        // Tell the user plainly instead of pretending the server saved.
+        toast('Saved to this browser (server storage is ephemeral on Vercel — set DATABASE_URL for cross-device sync). The AI will still use your saved key.', 'warn', 'Settings stored locally');
+        initProviderPane();
+      } else {
+        // Hard failure — server returned an error that wasn't ephemeral.
+        toast(d.error || 'Save failed', 'error', 'Settings save');
+      }
     } catch { /* toasted */ }
   }
   function collectIntegrations() {

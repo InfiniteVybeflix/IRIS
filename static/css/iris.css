@@ -888,3 +888,145 @@ select.input { cursor: pointer; }
 }
 .guide-console.err { border-color: var(--red); }
 .input.mono, .mono.input { font-family: var(--font-mono); font-size: 12.5px; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   IRIS — Round 3 enhancements
+   • Grid Pattern / Layout Lines backdrop (subtle, never noisy)
+   • Neo-Brutalist accent option (hard 2px borders, offset shadows)
+   • 3-state theme toggle (dark · light · system)
+   • Faster first paint (GPU compositing hints, no transition on load)
+   • Tighter app grid with consistent tile rhythm
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Grid Pattern / Layout Lines backdrop ──────────────────────────────
+   A faint grid overlay on the app shell — references the editorial /
+   neo-brutalist grid pattern aesthetic. Sits behind content, never
+   competes with it. Honors the active theme. */
+.app::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  z-index: 0; opacity: 0.45;
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: -1px -1px;
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 90%);
+          mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 90%);
+}
+.main { position: relative; z-index: 1; }  /* keep content above the grid */
+:root {
+  --grid-line: rgba(255, 255, 255, 0.025);
+  --brutalist-shadow: 4px 4px 0 var(--border-strong);
+  --brutalist-shadow-accent: 4px 4px 0 var(--accent);
+}
+[data-theme="light"] {
+  --grid-line: rgba(20, 24, 32, 0.045);
+  --brutalist-shadow: 4px 4px 0 #d3d6dc;
+  --brutalist-shadow-accent: 4px 4px 0 #4750d8;
+}
+
+/* ── Neo-Brutalist accent — opt-in via .brutalist class ────────────────
+   Hard 2px borders, no border-radius, offset hard shadows. Applied
+   selectively to .brutalist tiles (apps, hero cards, primary buttons).
+   The default app-card style stays soft — brutalist is opt-in. */
+.brutalist {
+  border: 2px solid var(--text) !important;
+  border-radius: 0 !important;
+  box-shadow: var(--brutalist-shadow);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.brutalist:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--border-strong);
+}
+.brutalist:active { transform: translate(0, 0); box-shadow: 2px 2px 0 var(--border-strong); }
+.brutalist.btn-primary { box-shadow: var(--brutalist-shadow-accent); }
+.brutalist.btn-primary:hover { box-shadow: 6px 6px 0 var(--accent); }
+
+/* App cards: keep the soft default but add a subtle hard edge on hover
+   so the grid backdrop reads as a deliberate design system. */
+.app-card {
+  position: relative; overflow: hidden;
+}
+.app-card::after {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--accent); opacity: 0; transition: opacity .14s ease;
+}
+.app-card:hover::after { opacity: 1; }
+
+/* ── 3-state theme toggle ──────────────────────────────────────────────
+   The toggle now cycles dark → light → system. Each state shows its own
+   icon; the button's title reflects the current mode. */
+#theme-toggle { position: relative; }
+#theme-toggle .i-sun,
+#theme-toggle .i-moon,
+#theme-toggle .i-system { display: none; }
+#theme-toggle .i-sun { display: block; }  /* default */
+[data-theme-pref="dark"]  #theme-toggle .i-sun   { display: block; }
+[data-theme-pref="dark"]  #theme-toggle .i-moon,
+[data-theme-pref="dark"]  #theme-toggle .i-system { display: none; }
+[data-theme-pref="light"] #theme-toggle .i-moon  { display: block; }
+[data-theme-pref="light"] #theme-toggle .i-sun,
+[data-theme-pref="light"] #theme-toggle .i-system { display: none; }
+[data-theme-pref="system"] #theme-toggle .i-system { display: block; }
+[data-theme-pref="system"] #theme-toggle .i-sun,
+[data-theme-pref="system"] #theme-toggle .i-moon { display: none; }
+/* The system icon: a sun/moon split circle */
+.i-system circle { fill: currentColor; opacity: 0.9; }
+.i-system path { fill: currentColor; }
+
+/* ── Performance: GPU compositing hints on animated elements ───────────
+   Promote the moving parts to their own compositor layer so scrolling
+   and hover animations don't trigger layout on the main thread. */
+.app-card, .nav-item, .btn, .icon-btn, .toast, .panel { transform: translateZ(0); }
+
+/* ── Performance: skip transitions on initial paint ────────────────────
+   Avoid the FOUC-style theme flash where elements animate from default
+   to the user's preferred theme on load. The .no-anim class is removed
+   by JS after first paint. */
+.no-anim *, .no-anim *::before, .no-anim *::after {
+  transition: none !important; animation: none !important;
+}
+
+/* ── Performance: respect prefers-reduced-motion ─────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ── App grid rhythm improvements ──────────────────────────────────────
+   Tighter gap, consistent tile heights, clearer section dividers. */
+.apps-section { margin-bottom: 28px; }
+.apps-section-title {
+  display: flex; align-items: center; gap: 12px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--text-3); font-weight: 600; margin-bottom: 14px;
+}
+.apps-section-line { flex: 1; height: 1px; background: var(--border); }
+.apps-grid { gap: 12px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.app-card { min-height: 132px; }
+
+/* ── Backend chip in topbar: show storage mode at a glance ─────────────
+   When settings are on an ephemeral backend, the chip turns amber so
+   the user sees the warning without opening Settings. */
+#backend-chip[data-state="ephemeral"] {
+  background: var(--amber-soft); color: var(--amber);
+  border: 1px solid var(--amber);
+}
+#backend-chip[data-state="ok"] {
+  background: var(--green-soft); color: var(--green);
+  border: 1px solid var(--green);
+}
+
+/* ── Storage warning banner (shown by JS when save returns ephemeral) ── */
+.storage-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; margin: 8px 0 14px;
+  background: var(--amber-soft); border: 1px solid var(--amber);
+  border-radius: var(--r-md); color: var(--amber);
+  font-size: 12.5px; line-height: 1.5;
+}
+.storage-banner strong { color: var(--text); }
+.storage-banner .btn-sm { margin-left: auto; }
