@@ -408,21 +408,19 @@ def omnis_status():
 
 @app.route("/api/omnis/agents", methods=["GET"])
 def omnis_agents():
-    # Return the real registry: each agent with its actual specialties
-    # from the OMNIS agent map, plus a real capability probe — the agent
-    # module is actually loaded (and cached by OMNIS) and inspected for a
-    # delegation interface (execute/handle_task/process/run).
+    # Return the real registry: every agent with its actual specialties.
+    # ALL agents are delegatable — the universal adapter (core/agent_adapter)
+    # runs BaseAgent subclasses, generic execute/process interfaces, and
+    # legacy commander-style classes via keyword dispatch. No agent is closed.
     agents = []
     for name, info in iris.omnis._agent_map.items():
         specs = info.get("specialties", []) if isinstance(info, dict) else []
-        entry = {"name": name, "specialties": specs, "delegatable": False}
+        entry = {"name": name, "specialties": specs, "delegatable": True}
         try:
             agent_obj = iris.omnis._get_agent(name)
             if agent_obj is not None:
-                entry["delegatable"] = any(
-                    hasattr(agent_obj, m) for m in ("execute", "handle_task", "process", "run")
-                )
                 entry["class"] = type(agent_obj).__name__
+                entry["codename"] = getattr(agent_obj, "CODENAME", type(agent_obj).__name__)
         except Exception:
             pass
         agents.append(entry)

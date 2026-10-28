@@ -209,26 +209,25 @@ class OMNIS:
             return self.execute(best_capability, merged_params)
         return {"success": False, "error": f"Could not determine capability for: '{request[:100]}'", "request": request}
 
-    def delegate(self, agent_name: str, task: Dict[str, Any]) -> Dict[str, Any]:
+    def delegate(self, agent_name: str, task: Any) -> Dict[str, Any]:
+        """Delegate a task to ANY agent in the corps.
+
+        Every agent is delegatable — the universal adapter (core/agent_adapter)
+        handles BaseAgent subclasses, generic execute/handle_task/process
+        interfaces, AND legacy commander-style classes via keyword dispatch
+        onto their real methods. No agent is closed.
+        """
         if not self._running:
             return {"success": False, "error": "OMNIS not running. Call start() first."}
         try:
-            agent = self._get_agent(agent_name)
-            if not agent:
-                return {"success": False, "error": f"Agent '{agent_name}' not found or failed to load."}
-            if hasattr(agent, 'execute'):
-                result = agent.execute(task)
-            elif hasattr(agent, 'handle_task'):
-                result = agent.handle_task(task)
-            elif hasattr(agent, 'process'):
-                result = agent.process(task)
-            elif hasattr(agent, 'run') and callable(getattr(agent, 'run')):
-                result = agent.run(**task)
-            else:
-                return {"success": False, "error": f"Agent '{agent_name}' has no known execution interface."}
-            return {"success": True, "agent": agent_name, "result": result, "delegated_at": datetime.utcnow().isoformat()}
+            from core.agent_adapter import run_agent_task
+            result = run_agent_task(agent_name, task)
+            result["delegated_at"] = datetime.utcnow().isoformat()
+            self._execution_count += 1
+            return result
         except Exception as e:
             logger.error(f"[OMNIS] Delegate to '{agent_name}' failed: {e}")
+            self._error_count += 1
             return {"success": False, "error": str(e), "agent": agent_name}
 
     def status(self) -> Dict[str, Any]:
@@ -379,37 +378,22 @@ class OMNIS:
         return {"success": True, "doc_type": doc_type, "recommendation": "Use specific parser modules for full extraction."}
 
     def _get_agent(self, agent_name: str) -> Optional[Any]:
+        """Load any agent — through the universal adapter (which supports
+        every agent generation) with the old local loader as fallback."""
         if agent_name in self._agent_cache:
             return self._agent_cache[agent_name]
         try:
-            file_map = {
-                "api_gateway": "api_gateway", "architect": "architect", "automation_forge": "automation_forge",
-                "blockchain_ledger": "blockchain_ledger", "blue_sentinel": "blue_sentinel", "chart_artisan": "chart_artisan",
-                "cloud_ranger": "cloud_ranger", "code_sage": "code_sage", "container_guard": "container_guard",
-                "data_alchemist": "data_alchemist", "database_sage": "database_sage", "devops_maven": "devops_maven",
-                "doc_scribe": "doc_scribe", "email_herald": "email_herald", "forensics_wraith": "forensics_wraith",
-                "ml_engineer": "ml_engineer", "mobile_sentinel": "mobile_sentinel", "net_weaver": "net_weaver",
-                "purple_judge": "purple_judge", "quantum_seer": "quantum_seer", "recon_ghost": "recon_ghost",
-                "red_specter": "red_specter", "research_scholar": "research_scholar", "swarm_coordinator": "swarm_coordinator",
-                "sys_overlord": "sys_overlord", "test_oracle": "test_oracle", "threat_prophet": "threat_prophet",
-                "ui_visionary": "ui_visionary", "voice_herald": "voice_herald", "vuln_hunter": "vuln_hunter",
-            }
-            file_name = file_map.get(agent_name, agent_name)
-            module = __import__(f"agents.{file_name}", fromlist=["*"])
-            class_name = "".join([p.capitalize() for p in file_name.split("_")])
-            if hasattr(module, class_name):
-                agent = getattr(module, class_name)()
+            from core.agent_adapter import load_agent, AGENT_FILES
+            agent = load_agent(agent_name)
+            if agent is not None:
                 self._agent_cache[agent_name] = agent
                 return agent
-
-            # Preferred resolution: the real agent class is a BaseAgent
-            # subclass. Resolve those FIRST — the generic loop below would
-            # otherwise instantiate arbitrary imported classes (e.g.
-            # pathlib.Path) that happen to be sortable earlier in dir().
-            try:
-                from core.base_agent import BaseAgent as _BaseAgent
-            except Exception:
-                _BaseAgent = None
+        except Exception as e:
+            logger.debug(f"[OMNIS] adapter load for '{agent_name}' failed: {e}")
+        # Legacy local fallback (kept for exotic agents not in AGENT_FILES)
+        try:
+            module = __import__(f"agents.{agent_name}", fromlist=["*"])
+            from core.base_agent import BaseAgent as _BaseAgent
             if _BaseAgent is not None:
                 for attr_name in dir(module):
                     attr = getattr(module, attr_name)
@@ -422,10 +406,9 @@ class OMNIS:
                             return agent
                         except Exception:
                             continue
-
             for attr_name in dir(module):
                 attr = getattr(module, attr_name)
-                if isinstance(attr, type) and attr_name != "BaseSkill":
+                if isinstance(attr, type) and attr_name not in ("BaseSkill", "BaseAgent"):
                     try:
                         agent = attr()
                         self._agent_cache[agent_name] = agent

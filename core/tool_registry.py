@@ -185,6 +185,30 @@ class ToolRegistry:
             }
         }, self.fetch_url)
 
+        # === REAL SECURITY SCANNER (pure Python — works on serverless) ===
+        self._register("security_scan", {
+            "type": "function",
+            "function": {
+                "name": "security_scan",
+                "description": ("Perform a REAL security scan of a website: security headers, cookie "
+                                "flags, TLS certificate analysis, common ports, sensitive file exposure "
+                                "(.git/.env/backups), CORS misconfiguration, technology fingerprint and "
+                                "XSS reflection probe. All checks are real network requests — no simulation."),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "description": "Domain or URL to scan, e.g. example.com or https://example.com"},
+                        "checks": {
+                            "type": "array", "items": {"type": "string"},
+                            "description": "Optional subset: headers, cookies, tls, ports, files, cors, tech, xss. Default: all."
+                        },
+                        "port_timeout": {"type": "number", "description": "Per-port timeout seconds (default 1.5)"}
+                    },
+                    "required": ["target"]
+                }
+            }
+        }, self.security_scan)
+
         # === GIT TOOLS ===
         self._register("git_clone", {
             "type": "function",
@@ -503,6 +527,301 @@ class ToolRegistry:
         except Exception as e:
             return ToolResult(success=False, error=str(e))
 
+    # ══════════════════════════════════════════════════════════════════════
+    # REAL WEBSITE SECURITY SCANNER — pure Python (urllib + socket + ssl),
+    # runs on Vercel serverless. Every check is a real network operation.
+    # ══════════════════════════════════════════════════════════════════════
+    _SCAN_PORTS = [21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 993, 995,
+                   1433, 1521, 2375, 2376, 3306, 3389, 5432, 5900, 6379, 8080, 8443, 9200, 27017]
+    _SENSITIVE_PATHS = [
+        "/.git/HEAD", "/.env", "/.env.local", "/.htaccess", "/robots.txt",
+        "/.DS_Store", "/backup.zip", "/backup.tar.gz", "/db.sql", "/dump.sql",
+        "/admin", "/administrator", "/phpmyadmin", "/wp-admin", "/wp-config.php.bak",
+        "/server-status", "/.svn/entries", "/composer.json", "/package.json",
+        "/web.config", "/.gitlab-ci.yml", "/id_rsa",
+    ]
+
+    @staticmethod
+    def _scan_normalize_target(target: str):
+        """Return (host, base_url). Tries https first, falls back to http."""
+        target = (target or "").strip().rstrip("/")
+        if not target:
+            return None, None
+        if not target.startswith(("http://", "https://")):
+            target = f"https://{target}"
+        from urllib.parse import urlsplit
+        parts = urlsplit(target)
+        host = parts.netloc.split("@")[-1].split(":")[0]
+        return host, target
+
+    def _scan_fetch(self, url: str, timeout: float = 12):
+        """Real HTTP GET. Returns (status, headers, body) — never raises."""
+        try:
+            req = requests.get(url, timeout=timeout, allow_redirects=False,
+                               headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) IRIS-Scanner/1.0"})
+            return req.status_code, dict(req.headers), req.text or ""
+        except Exception as e:
+            return 0, {}, f"__error__ {type(e).__name__}: {e}"
+
+    def security_scan(self, target: str, checks: list = None, port_timeout: float = 1.5) -> ToolResult:
+        """REAL comprehensive website security scan. All checks are actual
+        network operations — results contain only what really happened."""
+        import socket
+        import ssl as _ssl
+
+        host, base_url = self._scan_normalize_target(target)
+        if not host:
+            return ToolResult(success=False, error="No target provided")
+
+        wanted = [c.lower() for c in (checks or [])] or ["headers", "cookies", "tls", "ports", "files", "cors", "tech", "xss"]
+        lines: list = []
+        findings: list = []
+        sev_count = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+
+        def finding(sev, check, detail, evidence=""):
+            findings.append({"severity": sev, "check": check, "detail": detail, "evidence": str(evidence)[:300]})
+            sev_count[sev] = sev_count.get(sev, 0) + 1
+
+        lines.append(f"IRIS SECURITY SCAN — target: {host}")
+        lines.append(f"started: {__import__('datetime').datetime.now().isoformat(timespec='seconds')}")
+
+        # ── 0. Reachability (https → http fallback) ──────────────────────
+        status, headers, body = self._scan_fetch(base_url)
+        scheme = "https"
+        if status == 0 and base_url.startswith("https://"):
+            http_url = "http://" + base_url[len("https://"):]
+            s2, h2, b2 = self._scan_fetch(http_url)
+            if s2 != 0:
+                base_url, status, headers, body = http_url, s2, h2, b2
+                scheme = "http"
+                finding("high", "transport", "Site is NOT serving HTTPS (plain HTTP answered, HTTPS failed).", base_url)
+        if status == 0:
+            lines.append(f"RESULT: UNREACHABLE — {body[:200]}")
+            return ToolResult(success=False, error=f"Target unreachable: {host}",
+                              output="\n".join(lines), data={"target": host, "reachable": False})
+        lines.append(f"reachable: {base_url} → HTTP {status} (scheme: {scheme})")
+
+        # ── 1. Security headers ──────────────────────────────────────────
+        if "headers" in wanted:
+            lines.append("\n[1] SECURITY HEADERS")
+            hdr_checks = [
+                ("Strict-Transport-Security", "medium", "HSTS missing — users can be downgraded to HTTP (SSL-strip)."),
+                ("Content-Security-Policy", "medium", "Content-Security-Policy missing — XSS mitigation absent."),
+                ("X-Frame-Options", "low", "X-Frame-Options missing — clickjacking possible. (CSP frame-ancestors also absent.)"),
+                ("X-Content-Type-Options", "low", "X-Content-Type-Options missing — MIME-sniffing attacks possible."),
+                ("Referrer-Policy", "low", "Referrer-Policy missing — URLs may leak to third parties."),
+                ("Permissions-Policy", "info", "Permissions-Policy missing — camera/mic/geolocation not restricted."),
+            ]
+            for hdr, sev, msg in hdr_checks:
+                val = headers.get(hdr) or headers.get(hdr.lower())
+                if val:
+                    lines.append(f"  ✓ {hdr}: present ({val[:80]})")
+                else:
+                    lines.append(f"  ✗ {hdr}: MISSING")
+                    finding(sev, "headers", msg)
+            for banner in ("Server", "X-Powered-By"):
+                val = headers.get(banner) or headers.get(banner.lower())
+                if val and any(c.isdigit() for c in val):
+                    lines.append(f"  ! {banner}: {val} (version disclosed)")
+                    finding("info", "headers", f"{banner} discloses version: {val}")
+                elif val:
+                    lines.append(f"  · {banner}: {val}")
+
+        # ── 2. Cookie security ───────────────────────────────────────────
+        if "cookies" in wanted:
+            lines.append("\n[2] COOKIES")
+            set_cookies = headers.get("Set-Cookie") or headers.get("set-cookie") or ""
+            if not set_cookies:
+                lines.append("  · no cookies set on the root document")
+            else:
+                for cookie in set_cookies.split(","):
+                    name = cookie.split("=")[0].strip()
+                    if not name:
+                        continue
+                    flags = []
+                    if "httponly" not in cookie.lower():
+                        flags.append("no-HttpOnly")
+                        finding("low", "cookies", f"Cookie '{name}' lacks HttpOnly — readable by JavaScript (XSS token theft).")
+                    if "secure" not in cookie.lower():
+                        flags.append("no-Secure")
+                        if scheme == "https":
+                            finding("medium", "cookies", f"Cookie '{name}' lacks Secure — can leak over HTTP.")
+                    if "samesite" not in cookie.lower():
+                        flags.append("no-SameSite")
+                    lines.append(f"  {'✓' if not flags else '✗'} {name}: {', '.join(flags) or 'all flags set'}")
+
+        # ── 3. TLS certificate analysis (real socket + ssl) ─────────────
+        if "tls" in wanted and scheme == "https":
+            lines.append("\n[3] TLS CERTIFICATE")
+            try:
+                ctx = _ssl.create_default_context()
+                with socket.create_connection((host, 443), timeout=10) as sock:
+                    with ctx.wrap_socket(sock, server_hostname=host) as tls:
+                        cert = tls.getpeercert()
+                        proto = tls.version()
+                        lines.append(f"  · protocol: {proto}")
+                        if proto in ("TLSv1", "TLSv1.1"):
+                            finding("high", "tls", f"Deprecated protocol {proto} is accepted.")
+                        issuer = dict(x[0] for x in cert.get("issuer", []))
+                        subject = dict(x[0] for x in cert.get("subject", []))
+                        lines.append(f"  · issuer: {issuer.get('organizationName', 'unknown')}")
+                        lines.append(f"  · subject: {subject.get('commonName', host)}")
+                        lines.append(f"  · valid: {cert.get('notBefore', '?')} → {cert.get('notAfter', '?')}")
+                        import datetime as _dt
+                        try:
+                            exp = _dt.datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
+                            days = (exp - _dt.datetime.utcnow()).days
+                            lines.append(f"  · expires in: {days} days")
+                            if days < 0:
+                                finding("critical", "tls", f"Certificate EXPIRED {-days} days ago.")
+                            elif days < 15:
+                                finding("medium", "tls", f"Certificate expires in {days} days.")
+                        except Exception:
+                            pass
+                        san = [v for k, v in cert.get("subjectAltName", []) if k == "DNS"]
+                        if host not in san and subject.get("commonName") != host:
+                            finding("medium", "tls", f"Hostname '{host}' not in certificate SAN ({', '.join(san[:5])}).")
+            except Exception as e:
+                lines.append(f"  ✗ TLS handshake failed: {e}")
+                finding("high", "tls", f"TLS handshake failed: {e}")
+
+        # ── 4. Common ports (real socket connects) ──────────────────────
+        if "ports" in wanted:
+            lines.append("\n[4] OPEN PORTS (socket scan)")
+            open_ports = []
+            for port in self._SCAN_PORTS:
+                try:
+                    with socket.create_connection((host, port), timeout=float(port_timeout)):
+                        open_ports.append(port)
+                        lines.append(f"  ✓ OPEN  {port}/tcp")
+                except Exception:
+                    pass
+            if not open_ports:
+                lines.append("  · only filtered/closed ports detected on the common set")
+            risky = {2375: "Docker API UNAUTHENTICATED — full host takeover possible",
+                     2376: "Docker API TLS port exposed",
+                     9200: "Elasticsearch exposed",
+                     27017: "MongoDB exposed",
+                     6379: "Redis exposed",
+                     3389: "RDP exposed to the internet",
+                     5900: "VNC exposed to the internet",
+                     1433: "MSSQL exposed",
+                     3306: "MySQL exposed",
+                     5432: "PostgreSQL exposed",
+                     445: "SMB exposed",
+                     21: "FTP exposed", 23: "Telnet exposed (plaintext)"}
+            for p in open_ports:
+                if p in risky:
+                    sev = "critical" if p in (2375, 6379, 9200, 27017) else "high"
+                    finding(sev, "ports", f"Port {p}/tcp open — {risky[p]}.")
+
+        # ── 5. Sensitive file exposure (real HTTP probes) ────────────────
+        if "files" in wanted:
+            lines.append("\n[5] SENSITIVE FILES")
+            for path in self._SENSITIVE_PATHS:
+                url = f"{base_url}{path}"
+                s, h, b = self._scan_fetch(url, timeout=8)
+                if s == 200:
+                    content_probe = b[:200].strip()
+                    dangerous = [".git/HEAD", ".env", ".env.local", "backup.zip", "backup.tar.gz",
+                                 "db.sql", "dump.sql", "id_rsa", ".DS_Store", "wp-config.php.bak",
+                                 ".svn/entries", "server-status"]
+                    if path in dangerous or len(content_probe) > 0 and path.endswith((".sql", ".zip", ".bak")):
+                        lines.append(f"  ✗ {path} → 200 EXPOSED")
+                        finding("critical" if path in (".git/HEAD", ".env", ".env.local", "id_rsa") else "high",
+                                "files", f"{path} is publicly accessible.", content_probe[:120])
+                    else:
+                        lines.append(f"  · {path} → 200 (review content)")
+                        finding("info", "files", f"{path} returns 200.", content_probe[:80])
+                elif s in (301, 302, 403):
+                    lines.append(f"  ✓ {path} → {s}")
+                # 404/0 = fine, not logged to keep output tight
+
+        # ── 6. CORS misconfiguration ─────────────────────────────────────
+        if "cors" in wanted:
+            lines.append("\n[6] CORS")
+            try:
+                req = requests.get(base_url, timeout=10, allow_redirects=False,
+                                   headers={"User-Agent": "IRIS-Scanner/1.0",
+                                            "Origin": "https://evil-iris-probe.example"})
+                acao = req.headers.get("Access-Control-Allow-Origin")
+                acac = req.headers.get("Access-Control-Allow-Credentials")
+                if acao == "*":
+                    lines.append("  ✗ Access-Control-Allow-Origin: * (wildcard)")
+                    finding("medium", "cors", "CORS wildcard (*) — any origin can read responses.")
+                elif acao and "evil-iris-probe" in acao:
+                    lines.append(f"  ✗ ACAO reflects arbitrary origin: {acao}")
+                    finding("high", "cors", "CORS reflects ANY origin (origin reflection) — data readable cross-site.")
+                    if acac and acac.lower() == "true":
+                        finding("critical", "cors", "Origin reflection + credentials=true — full account takeover vector.")
+                elif acao:
+                    lines.append(f"  ✓ CORS restricted: {acao}")
+                else:
+                    lines.append("  · no CORS headers on root (no cross-origin access)")
+            except Exception as e:
+                lines.append(f"  · CORS probe failed: {e}")
+
+        # ── 7. Technology fingerprint (headers + html) ───────────────────
+        if "tech" in wanted:
+            lines.append("\n[7] TECHNOLOGY FINGERPRINT")
+            tech = []
+            sigs = [("x-powered-by", "headers"), ("server", "headers"),
+                    ("x-aspnet-version", "headers"), ("x-generator", "headers")]
+            for hdr, src in sigs:
+                v = headers.get(hdr) or headers.get(hdr.lower())
+                if v:
+                    tech.append(f"{hdr}={v}")
+            import re as _re
+            for pattern, name in [(r"wp-content|wp-includes", "WordPress"),
+                                  (r"cdn\.jsdelivr|unpkg", "CDN (jsdelivr/unpkg)"),
+                                  (r"react|_next/static", "React/Next.js"),
+                                  (r"vue|nuxt", "Vue/Nuxt"),
+                                  (r"angular", "Angular"),
+                                  (r"jquery", "jQuery"),
+                                  (r"laravel|csrf-token", "Laravel"),
+                                  (r"django", "Django"),
+                                  (r"cloudflare", "Cloudflare")]:
+                if _re.search(pattern, body[:60000], _re.IGNORECASE):
+                    tech.append(name)
+            if tech:
+                lines.append("  · " + ", ".join(tech[:12]))
+            else:
+                lines.append("  · no technologies identified from headers/markup")
+
+        # ── 8. XSS reflection probe (safe GET with a unique marker) ──────
+        if "xss" in wanted:
+            lines.append("\n[8] XSS REFLECTION PROBE")
+            marker = "iris9x7q2"
+            try:
+                s, h, b = self._scan_fetch(f"{base_url}/?q={marker}", timeout=10)
+                if marker in b:
+                    idx = b.find(marker)
+                    ctx_txt = b[max(0, idx - 60):idx + 70].replace("\n", " ")
+                    lines.append(f"  ✗ parameter value reflected unencoded:")
+                    lines.append(f"    …{ctx_txt}…")
+                    finding("medium", "xss",
+                            "Query parameter is reflected unencoded — potential reflected XSS (verify context: HTML/attr/JS).",
+                            ctx_txt)
+                else:
+                    lines.append("  ✓ parameter value not reflected in the response")
+            except Exception as e:
+                lines.append(f"  · reflection probe failed: {e}")
+
+        # ── Report ───────────────────────────────────────────────────────
+        lines.append("\n──────── SUMMARY ────────")
+        lines.append(f"findings: " + ", ".join(f"{k}={v}" for k, v in sev_count.items() if v))
+        for f in sorted(findings, key=lambda x: ["critical", "high", "medium", "low", "info"].index(x["severity"])):
+            lines.append(f"[{f['severity'].upper():8s}] {f['check']:8s} {f['detail']}")
+        if not findings:
+            lines.append("no issues found by the automated checks")
+
+        return ToolResult(
+            success=True,
+            data={"target": host, "scheme": scheme, "reachable": True,
+                  "findings": findings, "counts": sev_count},
+            output="\n".join(lines),
+        )
+
     def git_clone(self, repo_url: str, local_name: str = None) -> ToolResult:
         try:
             target = local_name or repo_url.split("/")[-1].replace(".git", "")
@@ -641,20 +960,17 @@ class ToolRegistry:
     def self_diagnose(self) -> ToolResult:
         try:
             checks = {}
-            # DB check
+            # DB check — real connectivity probe (Postgres or SQLite)
             try:
-                import sqlite3
-                # Test actual database connectivity (PostgreSQL or SQLite)
                 from core.db import db
                 if db._db_available:
                     if db.use_postgres:
                         db._execute("SELECT 1")
-                    checks["database"] = {"ok": True, "message": "PostgreSQL connected"}
+                        checks["database"] = {"ok": True, "message": "PostgreSQL connected"}
+                    else:
+                        checks["database"] = {"ok": True, "message": "SQLite connected"}
                 else:
                     checks["database"] = {"ok": False, "message": "Database not available"}
-                conn.execute("SELECT 1")
-                conn.close()
-                checks["database"] = {"ok": True, "message": "Connected"}
             except Exception as e:
                 checks["database"] = {"ok": False, "message": str(e)}
             # Aevibron check

@@ -344,78 +344,132 @@ class PROBE(BaseAgent):
             return {"error": str(e)}
 
     def fuzz(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Fuzz testing."""
+        """REAL fuzz testing — extracts the target function from the supplied
+        code, then actually CALLS it with generated inputs and records real
+        exceptions. No simulation."""
         code = payload.get("code", "")
         target_function = payload.get("target_function", "")
-        iterations = payload.get("iterations", 100)
+        iterations = min(int(payload.get("iterations", 100) or 100), 500)
+
+        if not code.strip():
+            return {"error": "No code provided — fuzzing needs the function source to actually execute it."}
+
+        # Execute the supplied code once to get the target function object.
+        namespace: Dict[str, Any] = {"__name__": "iris_fuzz"}
+        try:
+            exec(compile(code, "<fuzz-target>", "exec"), namespace)
+        except Exception as e:
+            return {"error": f"Supplied code failed to import: {type(e).__name__}: {e}"}
+
+        fn = namespace.get(target_function)
+        if fn is None:
+            # Pick the first user-defined callable in the namespace.
+            candidates = [v for k, v in namespace.items()
+                          if callable(v) and getattr(v, "__module__", "") == "iris_fuzz"]
+            if not candidates:
+                return {"error": (f"Function '{target_function or '(any)'}' not found in the "
+                                  f"supplied code — provide a target_function name.")}
+            fn = candidates[0]
+            target_function = getattr(fn, "__name__", target_function)
 
         results = []
         crashes = []
-
+        import io, contextlib
         for i in range(iterations):
+            test_input = self._generate_fuzz_input()
             try:
-                # Generate random input
-                test_input = self._generate_fuzz_input()
-
-                # In a real scenario, we'd execute the function
-                # Here we simulate fuzzing results
-                if random.random() < 0.05:  # 5% crash rate simulation
-                    crashes.append({"iteration": i, "input": test_input, "error": "Simulated crash"})
-                else:
-                    results.append({"iteration": i, "input": test_input, "status": "passed"})
+                with contextlib.redirect_stdout(io.StringIO()):
+                    fn(test_input)
+                results.append({"iteration": i, "status": "passed"})
             except Exception as e:
-                crashes.append({"iteration": i, "input": test_input, "error": str(e)})
+                crashes.append({"iteration": i, "input": repr(test_input)[:200],
+                                "error": f"{type(e).__name__}: {e}"})
 
+        crash_rate = len(crashes) / iterations if iterations > 0 else 0
         return {
+            "target_function": target_function,
             "iterations": iterations,
             "passed": len(results),
             "crashes": len(crashes),
-            "crash_rate": len(crashes) / iterations if iterations > 0 else 0,
-            "crashes": crashes[:10],
+            "crash_rate": round(crash_rate, 4),
+            "crash_samples": crashes[:10],
+            "mode": "real-execution",
             "recommendations": [
-                "Fix all crash-inducing inputs",
-                "Add input validation",
+                "Fix all crash-inducing inputs (samples above are real exceptions)",
+                "Add input validation at the function boundary",
                 "Use parameterized testing for edge cases",
-                "Implement proper error boundaries",
-            ],
+            ] + (["Crash rate above 20% — harden the input parser first."] if crash_rate > 0.2 else []),
         }
 
-    def _generate_fuzz_input(self) -> Any:
-        """Generate random fuzz input."""
+    def _generate_fuzz_input(self, depth: int = 0) -> Any:
+        """Generate random fuzz input — depth-bounded and hash-safe (dict
+        keys are always strings; nesting can't explode recursively)."""
         input_types = ["string", "int", "float", "list", "dict", "none", "bytes"]
+        if depth >= 2:
+            input_types = ["string", "int", "float", "none", "bytes"]  # no more nesting
         choice = random.choice(input_types)
 
         if choice == "string":
-            length = random.randint(0, 1000)
+            length = random.randint(0, 200)
             return "".join(random.choices(string.printable, k=length))
         elif choice == "int":
             return random.randint(-2**31, 2**31)
         elif choice == "float":
             return random.uniform(-1e308, 1e308)
         elif choice == "list":
-            return [self._generate_fuzz_input() for _ in range(random.randint(0, 100))]
+            return [self._generate_fuzz_input(depth + 1) for _ in range(random.randint(0, 8))]
         elif choice == "dict":
-            return {self._generate_fuzz_input(): self._generate_fuzz_input() for _ in range(random.randint(0, 20))}
+            # Hash-safe: keys are ALWAYS strings (unhashable keys would crash
+            # the generator itself, not the fuzz target).
+            return {f"key_{i}": self._generate_fuzz_input(depth + 1)
+                    for i in range(random.randint(0, 8))}
         elif choice == "none":
             return None
         elif choice == "bytes":
-            return bytes(random.randint(0, 255) for _ in range(random.randint(0, 1000)))
+            return bytes(random.randint(0, 255) for _ in range(random.randint(0, 200)))
 
         return "fuzz"
 
     def benchmark(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Performance benchmarking."""
+        """REAL performance benchmarking — executes the supplied code and
+        measures actual wall-clock times. No simulation."""
         code = payload.get("code", "")
-        iterations = payload.get("iterations", 1000)
+        iterations = min(int(payload.get("iterations", 1000) or 1000), 100000)
 
-        # Simulate benchmarking
+        if not code.strip():
+            return {"error": "No code provided — benchmarking needs code to actually execute."}
+
+        namespace: Dict[str, Any] = {"__name__": "iris_bench"}
+        try:
+            exec(compile(code, "<bench-target>", "exec"), namespace)
+        except Exception as e:
+            return {"error": f"Supplied code failed to import: {type(e).__name__}: {e}"}
+
+        # Prefer an explicit benchmark() target; else a function named
+        # 'main'/'run'; else time module-level code by re-executing it.
+        fn = None
+        for name in ("benchmark", "main", "run", "target"):
+            if callable(namespace.get(name)):
+                fn = namespace[name]
+                break
+        if fn is None:
+            candidates = [v for k, v in namespace.items()
+                          if callable(v) and getattr(v, "__module__", "") == "iris_bench"]
+            fn = candidates[0] if candidates else None
+
+        import io, contextlib
         times = []
         for _ in range(iterations):
             start = time.perf_counter()
-            # In real scenario, execute the code
-            time.sleep(0.0001)  # Simulate work
-            end = time.perf_counter()
-            times.append(end - start)
+            try:
+                if fn is not None:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        fn()
+                else:
+                    exec(compile(code, "<bench-target>", "exec"), {"__name__": "iris_bench"})
+            except Exception as e:
+                return {"error": f"Benchmark execution failed: {type(e).__name__}: {e}"}
+            times.append(time.perf_counter() - start)
 
         times.sort()
 

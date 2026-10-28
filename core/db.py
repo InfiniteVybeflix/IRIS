@@ -51,8 +51,14 @@ class Database:
         try:
             import psycopg2
             from psycopg2.extras import RealDictCursor
+            dsn = config.DATABASE_URL
+            # Supabase / Neon require SSL. If the URL has no sslmode param,
+            # append sslmode=require so the connection doesn't fail with
+            # "server does not support SSL" / "connection was closed".
+            if dsn and "sslmode=" not in dsn:
+                dsn = dsn + ("&" if "?" in dsn else "?") + "sslmode=require"
             self.pg_conn = psycopg2.connect(
-                config.DATABASE_URL,
+                dsn,
                 cursor_factory=RealDictCursor,
                 connect_timeout=15,
                 options='-c statement_timeout=30000'
@@ -304,6 +310,21 @@ class Database:
             )
         """)
 
+        # Chat sessions — one row per conversation (chat history feature).
+        self._execute(f"""
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                session_id TEXT PRIMARY KEY,
+                title TEXT DEFAULT 'New chat',
+                created_at {ts} DEFAULT {now},
+                updated_at {ts} DEFAULT {now}
+            )
+        """)
+        # Index for fast "list sessions by recent activity"
+        try:
+            self._execute(f"CREATE INDEX IF NOT EXISTS idx_messages_session ON messages (session_id, timestamp)")
+        except Exception:
+            pass  # PG may need CREATE INDEX IF NOT EXISTS (supported 9.5+); ignore failures
+
         # Default owner
         # Note: SQL syntax differs between SQLite and PostgreSQL for conflict handling:
         #   SQLite:     INSERT OR IGNORE INTO owner ...
@@ -321,17 +342,32 @@ class Database:
 
     # === MESSAGES ===
     def save_message(self, session_id: str, role: str, content: str, reasoning: str = None,
-                     tool_calls: List[str] = None, model_used: str = None, tokens_used: int = 0):
+                     tool_calls: List[str] = None, model_used: str = None, tokens_used: int = 0) -> Optional[int]:
         ph = "%s" if self.use_postgres else "?"
-        self._execute(
-            f"INSERT INTO messages (session_id, role, content, reasoning, tool_calls, model_used, tokens_used) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})",
+        sql = (f"INSERT INTO messages (session_id, role, content, reasoning, tool_calls, model_used, tokens_used) "
+               f"VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})")
+        if self.use_postgres:
+            sql += " RETURNING id"
+        cursor = self._execute(
+            sql,
             (session_id, role, content, reasoning, json.dumps(tool_calls) if tool_calls else None, model_used, tokens_used)
         )
+        try:
+            if self.use_postgres and cursor is not None:
+                row = cursor.fetchone()
+                return int(row["id"]) if row else None
+            if cursor is not None and hasattr(cursor, "lastrowid"):
+                return cursor.lastrowid
+        except Exception:
+            pass
+        return None
 
     def get_conversation(self, session_id: str, limit: int = 50) -> List[Dict]:
         ph = "%s" if self.use_postgres else "?"
+        # ORDER BY id as the tiebreaker: timestamps have second precision, so
+        # two messages saved in the same second would otherwise scramble.
         rows = self._fetchall(
-            f"SELECT * FROM messages WHERE session_id = {ph} ORDER BY timestamp DESC LIMIT {ph}",
+            f"SELECT * FROM messages WHERE session_id = {ph} ORDER BY id DESC LIMIT {ph}",
             (session_id, limit)
         )
         return rows[::-1]
@@ -339,6 +375,90 @@ class Database:
     def get_all_sessions(self) -> List[Dict]:
         return self._fetchall(
             "SELECT session_id, MAX(timestamp) as last_message, COUNT(*) as message_count FROM messages GROUP BY session_id ORDER BY last_message DESC"
+        )
+
+    # === CHAT SESSIONS (chat history) ===
+    def create_chat_session(self, session_id: str, title: str = "New chat") -> Dict:
+        ph = "%s" if self.use_postgres else "?"
+        now = datetime.now().isoformat()
+        if self.use_postgres:
+            self._execute(
+                f"INSERT INTO chat_sessions (session_id, title, created_at, updated_at) VALUES ({ph}, {ph}, {ph}, {ph}) "
+                f"ON CONFLICT (session_id) DO UPDATE SET updated_at = excluded.updated_at",
+                (session_id, title, now, now)
+            )
+        else:
+            self._execute(
+                f"INSERT OR REPLACE INTO chat_sessions (session_id, title, created_at, updated_at) VALUES ({ph}, {ph}, {ph}, {ph})",
+                (session_id, title, now, now)
+            )
+        return {"session_id": session_id, "title": title, "created_at": now}
+
+    def list_chat_sessions(self) -> List[Dict]:
+        """All chat sessions, most recently active first, with message counts
+        and a preview of the last message."""
+        pg = self.use_postgres
+        ph = "%s" if pg else "?"
+        try:
+            rows = self._fetchall("""
+                SELECT s.session_id, s.title, s.created_at, s.updated_at,
+                       (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.session_id) AS message_count,
+                       (SELECT m.content FROM messages m WHERE m.session_id = s.session_id
+                         ORDER BY m.timestamp DESC LIMIT 1) AS last_message
+                FROM chat_sessions s
+                ORDER BY s.updated_at DESC
+                LIMIT 200
+            """)
+        except Exception as e:
+            logger.warning(f"list_chat_sessions join failed: {e}")
+            rows = self._fetchall("SELECT session_id, title, created_at, updated_at FROM chat_sessions ORDER BY updated_at DESC LIMIT 200")
+            for r in rows:
+                r["message_count"] = 0
+                r["last_message"] = None
+        return rows
+
+    def get_chat_session(self, session_id: str) -> Optional[Dict]:
+        ph = "%s" if self.use_postgres else "?"
+        return self._fetchone(f"SELECT * FROM chat_sessions WHERE session_id = {ph}", (session_id,))
+
+    def rename_chat_session(self, session_id: str, title: str) -> bool:
+        ph = "%s" if self.use_postgres else "?"
+        self._execute(
+            f"UPDATE chat_sessions SET title = {ph}, updated_at = CURRENT_TIMESTAMP WHERE session_id = {ph}",
+            (title, session_id)
+        )
+        return True
+
+    def touch_chat_session(self, session_id: str):
+        ph = "%s" if self.use_postgres else "?"
+        self._execute(f"UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP WHERE session_id = {ph}", (session_id,))
+
+    def delete_chat_session(self, session_id: str) -> Dict:
+        """Delete a chat session AND all of its messages."""
+        ph = "%s" if self.use_postgres else "?"
+        self._execute(f"DELETE FROM messages WHERE session_id = {ph}", (session_id,))
+        self._execute(f"DELETE FROM chat_sessions WHERE session_id = {ph}", (session_id,))
+        return {"deleted": session_id}
+
+    def update_message(self, message_id, content: str) -> bool:
+        """Edit a message's content (chat edit feature)."""
+        ph = "%s" if self.use_postgres else "?"
+        self._execute(f"UPDATE messages SET content = {ph} WHERE id = {ph}", (content, message_id))
+        return True
+
+    def delete_message(self, message_id) -> bool:
+        """Delete a single message (chat delete feature)."""
+        ph = "%s" if self.use_postgres else "?"
+        self._execute(f"DELETE FROM messages WHERE id = {ph}", (message_id,))
+        return True
+
+    def get_messages_after(self, session_id: str, message_id) -> List[Dict]:
+        """All messages strictly AFTER message_id (for retry: drop the old
+        assistant reply and everything that followed)."""
+        ph = "%s" if self.use_postgres else "?"
+        return self._fetchall(
+            f"SELECT * FROM messages WHERE session_id = {ph} AND id > {ph} ORDER BY id ASC",
+            (session_id, message_id)
         )
 
     # === TASKS ===

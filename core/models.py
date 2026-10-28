@@ -30,7 +30,7 @@ class ToolResult(BaseModel):
     error: Optional[str] = Field(None, description="Error message if failed")
     output: Optional[str] = Field(None, description="Console/output text")
     duration: float = Field(0.0, description="Execution time in seconds")
-    tool: str = Field(..., description="Tool that was called")
+    tool: str = Field("", description="Tool that was called")
     params: Dict[str, Any] = Field(default_factory=dict, description="Parameters used")
 
 class VerificationResult(BaseModel):

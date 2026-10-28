@@ -25,6 +25,22 @@ logger = logging.getLogger(__name__)
 settings_bp = Blueprint("iris_settings", __name__)
 
 
+def _settings_manager():
+    """Import modules.settings_manager robustly (the modules package __init__
+    pulls optional deps — fall back to a direct file load if it breaks)."""
+    import importlib.util
+    try:
+        from modules import settings_manager as sm
+        return sm
+    except Exception:
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))), "modules", "settings_manager.py")
+        spec = importlib.util.spec_from_file_location("_iris_settings_manager", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+
 # ─── Input sanitization ─────────────────────────────────────────────────
 # RFC 2616 §4.2 mandates that HTTP header field-values must be encodable as
 # latin-1 (codepoints 0–255). When users copy-paste a gateway URL or API key
@@ -124,12 +140,14 @@ PROVIDERS = {
         "recommended": True,
         "description": "Aevibron's AI gateway — OpenAI-compatible proxy. Recommended for best results.",
         "fields": [
-            {"name": "url", "label": "Gateway URL", "type": "url", "placeholder": "https://aevibron-gateway.vercel.app/api/v1", "required": True,
-             "hint": "Include the /api/v1 path. If you paste the bare host, IRIS adds /api/v1 for you."},
+            {"name": "url", "label": "Gateway URL", "type": "url", "placeholder": "https://aevibron-gateway.veecel.app/api/v1", "required": True,
+             "hint": "Include the /api/v1 path. If you paste the bare host, IRIS adds /api/v1 for you. The vercel.app mirror is used as automatic fallback."},
             {"name": "key", "label": "API Key", "type": "password", "placeholder": "Your Aevibron API key", "required": False,
-             "hint": "Sent as the Bearer token — this is the credential the gateway checks."},
+             "hint": "Sent as the Bearer token AND in X-Aevibron-Key — this is the credential the gateway checks."},
+            {"name": "model", "label": "Model (optional)", "type": "text", "placeholder": "Aevibron Core", "required": False,
+             "hint": "Leave blank to use the gateway's default model (Aevibron Core)."},
             {"name": "x_aevibron_key", "label": "X-Aevibron-Key (leave blank)", "type": "password", "placeholder": "Optional — only if your gateway uses a separate access key", "required": False,
-             "hint": "LEAVE BLANK unless Aevibron gave you a separate X-Aevibron-Key value. Your API key is already sent in this header automatically. A wrong value here causes HTTP 401."},
+             "hint": "LEAVE BLANK unless Aevibron gave you a separate X-Aevibron-Key value. Your API key is already sent in this header automatically."},
         ],
         "test_method": "openai_compat",
     },
@@ -158,6 +176,8 @@ PROVIDERS = {
         "description": "Groq Cloud — blazing fast inference. Free tier at console.groq.com.",
         "fields": [
             {"name": "key", "label": "Groq API Key", "type": "password", "placeholder": "gsk_...", "required": True},
+            {"name": "model", "label": "Model (optional)", "type": "text", "placeholder": "llama-3.3-70b-versatile", "required": False,
+             "hint": "e.g. llama-3.3-70b-versatile, llama-3.1-8b-instant, openai/gpt-oss-120b"},
         ],
         "test_method": "groq",
     },
@@ -214,24 +234,20 @@ INTEGRATIONS = {
 @settings_bp.route("/api/iris/settings", methods=["GET"])
 def get_settings():
     """Get current settings — keys are MASKED (first 4 + last 4 chars)."""
-    from modules.settings_manager import get_settings as _get
-    return jsonify(_get())
+    sm = _settings_manager()
+    return jsonify(sm.get_settings())
 
 
 @settings_bp.route("/api/iris/settings", methods=["POST"])
 def save_settings():
-    """Save settings — keys are encrypted client-side before being sent.
-
-    The client encrypts keys using AES-GCM (Web Crypto API) with a key
-    derived from the user's session. The server stores the encrypted
-    values and decrypts them only at LLM call time.
+    """Save settings.
 
     If a key field is empty or null, the existing key is preserved (not
     cleared). To explicitly clear a key, send null.
     """
-    from modules.settings_manager import save_settings as _save
+    sm = _settings_manager()
     data = request.get_json() or {}
-    result = _save(data)
+    result = sm.save_settings(data)
     return jsonify(result)
 
 
@@ -337,7 +353,7 @@ def _test_openai_compat(provider: str, config: dict, test_prompt: str) -> dict:
     sanitized = False  # set True if we strip any invisible chars from input
 
     if provider == "aevibron":
-        raw_url = (config.get("url") or "https://aevibron-gateway.vercel.app/api/v1").strip().strip("<>").rstrip("/")
+        raw_url = (config.get("url") or "https://aevibron-gateway.veecel.app/api/v1").strip().strip("<>").rstrip("/")
         url = _sanitize_url(raw_url)
         # Users often paste the bare host — the gateway only serves /api/v1.
         if "/api/v1" not in url and not url.endswith("/v1"):

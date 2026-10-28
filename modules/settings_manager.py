@@ -265,11 +265,11 @@ def get_settings() -> Dict[str, Any]:
             "Postgres) and set DATABASE_URL."
         )
     provider_fields = {
-        "aevibron": [("url", "url"), ("key", "key_masked"), ("x_aevibron_key", "x_aevibron_key_masked")],
-        "ollama_local": [("host", "host")],
-        "ollama_cloud": [("url", "url"), ("key", "key_masked")],
-        "groq": [("key", "key_masked")],
-        "openai": [("url", "url"), ("key", "key_masked")],
+        "aevibron": [("url", "url"), ("key", "key_masked"), ("x_aevibron_key", "x_aevibron_key_masked"), ("model", "model")],
+        "ollama_local": [("host", "host"), ("model", "model")],
+        "ollama_cloud": [("url", "url"), ("key", "key_masked"), ("model", "model")],
+        "groq": [("key", "key_masked"), ("model", "model")],
+        "openai": [("url", "url"), ("key", "key_masked"), ("model", "model")],
         "custom": [("url", "url"), ("key", "key_masked"), ("model", "model")],
     }
     for name, fields in provider_fields.items():

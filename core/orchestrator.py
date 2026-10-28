@@ -1,593 +1,423 @@
-"""IRIS v1 Hybrid Orchestrator — Bulletproof Agent Brain with Structured Output"""
+"""IRIS v2 Hybrid Orchestrator — Autonomous Agentic Brain.
+
+The chat brain. A true observe → think → act loop:
+
+  1. The request + recent history go to the LLM THROUGH THE LLM ROUTER
+     (so the provider selected in Settings — Aevibron, Groq, OpenAI,
+     Ollama, custom — is the one that actually answers).
+  2. The LLM is given the full tool schema PLUS a `delegate_agent` tool
+     that can hand work to any of the 30 specialist agents. It may call
+     tools as many times as it wants (up to MAX_TOOL_ITERATIONS), fully
+     autonomously.
+  3. Every reasoning chunk, every tool call, every agent action is emitted
+     as a structured event so the frontend can show live "rising terminals".
+  4. The final answer streams token-by-token.
+
+Event protocol (all dicts, SSE-friendly):
+  {"type": "phase",    "phase": str, "message": str, "progress": int}
+  {"type": "answer",   "content": str}                  — assistant text delta
+  {"type": "answer_retract", "length": int}             — convert the last N chars of
+                                                          streamed text into thinking
+  {"type": "thinking", "content": str}                  — reasoning (pre-tool text)
+  {"type": "terminal_start", "id", "title", "kind": "tool"|"agent", "command": str}
+  {"type": "terminal_line", "id", "line": str}          — output lines
+  {"type": "terminal_end", "id", "status": "ok"|"error", "summary": str}
+  {"type": "done",     "answer": str, "model": str, "provider": str,
+                       "tool_calls": [...], "duration": float}
+  {"type": "error",    "message": str}
+
+Text streaming model:
+  Text the model produces BEFORE issuing tool calls is reasoning — it is
+  streamed live as answer deltas, then converted to thinking via
+  `answer_retract` when the tool calls arrive (the frontend moves it from
+  the message body into the thinking panel). Text after the final tool
+  call is the answer itself.
+"""
 import json
-import os
-import re
+import logging
 import time
 import uuid
-import unicodedata
-import urllib.request
-import urllib.error
-import logging
-from typing import Dict, List, Any, Generator, Optional
-from datetime import datetime
+from typing import Any, Dict, Generator, List, Optional
+
 from config import config
-from core.models import (
-    ReasoningPlan, PlanStep, ToolResult, VerificationResult,
-    ExperienceRecord, StatusUpdate
-)
-from core.tool_registry import tool_registry
 
 logger = logging.getLogger(__name__)
 
+try:
+    from core.llm_router import llm_router
+except Exception:  # pragma: no cover
+    llm_router = None
 
-# ─── Input sanitization (mirrors api/routes/settings.py) ────────────────
-# These invisible Unicode characters crash urllib's latin-1 header encoder
-# (RFC 2616 §4.2) with the cryptic "'latin-1' codec can't encode character"
-# error. They sneak in via copy-paste from chat apps, PDFs, word processors.
-_INVISIBLE_CHARS_RE = re.compile(
-    "["
-    "\u00ad\u02dd\u115f\u180e"
-    "\u2000-\u200f"
-    "\u2028-\u202f"
-    "\u205f-\u206f"
-    "\u3164\ufeff\uffa0"
-    "]"
-)
-_NBSP_RE = re.compile("[\u00a0\u2007\u202f\u3000]")
+try:
+    from core.tool_registry import tool_registry
+except Exception:  # pragma: no cover
+    tool_registry = None
 
 
-def _strip_invisibles(value: str) -> str:
-    if not value:
-        return value
-    s = unicodedata.normalize("NFKC", value)
-    s = _NBSP_RE.sub(" ", s)
-    return _INVISIBLE_CHARS_RE.sub("", s)
+SYSTEM_PROMPT = """You are IRIS — Infinite Reactive Intelligence System, {owner}'s personal AI engineering partner.
 
+IDENTITY
+- Name: IRIS · Owner: {owner}
+- You are a senior software engineer, security researcher and creative collaborator.
+- Personality: direct, honest, precise, occasionally warm. Never fake results.
 
-def _sanitize_header_value(value) -> str:
-    """RFC 2616 §4.2: header values must be latin-1 encodable."""
-    s = _strip_invisibles(value or "")
-    if not isinstance(s, str):
-        s = str(s)
-    return s.encode("latin-1", errors="replace").decode("latin-1")
+CAPABILITIES
+- You have REAL tools (see the tool list) — web search, fetching URLs, reading/writing
+  files, executing Python, and a full website security scanner that performs real
+  HTTP/TLS/header/port analysis.
+- You can delegate work to specialist agents with `delegate_agent` — 30 experts
+  (vuln_hunter vulnerability scanning, red_specter red team, recon_ghost recon/OSINT,
+  blue_sentinel defense, forensics_wraith, threat_prophet, code_sage, database_sage,
+  cloud_ranger, ml_engineer, data_alchemist, chart_artisan, research_scholar,
+  doc_scribe, architect, test_oracle, net_weaver, and more). Delegation runs the
+  agent for real and returns its actual output.
 
+RULES
+1. THINK before acting. For anything needing current facts, a website, a scan, or a
+   computation — USE A TOOL. Never invent results.
+2. You may call tools and delegate agents as many times as you need, in sequence,
+   building on earlier results.
+3. When you run a tool or agent, first write ONE short sentence saying what you are
+   doing, then issue the call.
+4. Report REAL output from tools. If a tool fails, say so plainly and try another
+   approach — never fabricate a result.
+5. For vulnerability scanning of a website, use the `security_scan` tool or delegate
+   to `vuln_hunter` — they perform real network analysis.
+6. Final answer: concise, well-structured markdown. Show real findings with evidence.
+"""
 
-def _sanitize_url(url) -> str:
-    """Strip invisibles + ALL whitespace, percent-encode residual non-ASCII."""
-    s = _strip_invisibles(url or "")
-    if not s:
-        return s
-    # URLs can never legitimately contain whitespace — a paste-artifact space
-    # inside a hostname must be removed, not turned into %20.
-    s = "".join(ch for ch in s if not unicodedata.category(ch).startswith("Z"))
-    return s.strip().strip("<>").rstrip("/")
-
-
-def _normalize_aevibron_url(url: str) -> str:
-    """Ensure the URL points at /api/v1 (the gateway's only API root)."""
-    u = _sanitize_url(url)
-    if not u:
-        return u
-    if "/api/v1" not in u and not u.endswith("/v1"):
-        u = f"{u}/api/v1"
-    return u
-
-
-def _load_provider_settings() -> Dict[str, Any]:
-    """Read the Aevibron provider config from settings_manager (which reads
-    Postgres / JSON file). Falls back to env vars if settings_manager is
-    unavailable. Returns {url, key, x_aevibron_key}.
-
-    This is called per-request so a settings save takes effect immediately,
-    without restarting the serverless function.
-    """
-    cfg: Dict[str, Any] = {}
-    try:
-        from modules.settings_manager import get_provider_config
-        cfg = get_provider_config("aevibron") or {}
-    except Exception as e:
-        logger.debug("[orchestrator] settings_manager unavailable: %s", e)
-    url = cfg.get("url", "") or os.environ.get("AEVIBRON_BASE_URL", config.AEVIBRON_BASE_URL)
-    key = cfg.get("key", "") or os.environ.get("AEVIBRON_API_KEY", config.AEVIBRON_API_KEY)
-    x_key = cfg.get("x_aevibron_key", "") or os.environ.get("AEVIBRON_ACCESS_TOKEN", config.AEVIBRON_ACCESS_TOKEN)
-    return {"url": url, "key": key, "x_aevibron_key": x_key}
-
-
-class AevibronClient:
-    """Production-grade Aevibron gateway client.
-
-    Key facts (verified against the live service):
-      - Chat endpoint: POST /chat   (NOT /chat/completions — that returns 404)
-      - Models listing: GET /models
-      - Auth: X-Aevibron-Key header (the API key is sent in this header by
-        default; if a separate access token is configured, that takes precedence)
-      - Base URL must include /api/v1 — a bare host returns 404 with an HTML
-        page (the Next.js app shell, not JSON)
-
-    Configuration is read fresh per request from settings_manager (which
-    reads Postgres / JSON file), so a settings save takes effect immediately.
-    An optional `provider_override` arg lets callers (e.g. /api/chat)
-    pass a per-request config from localStorage when no server-side
-    persistent backend is available.
-    """
-
-    def __init__(self):
-        # Cached for the lifetime of this singleton, but _resolve() refreshes
-        # on every call so saved settings take effect immediately.
-        self.request_count = 0
-        self.error_count = 0
-
-    def _resolve(self, override: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
-        """Build (url, key, x_key) for this request from override → settings → env."""
-        if override and (override.get("url") or override.get("key") or override.get("x_aevibron_key")):
-            url = override.get("url", "") or os.environ.get("AEVIBRON_BASE_URL", config.AEVIBRON_BASE_URL)
-            key = override.get("key", "") or os.environ.get("AEVIBRON_API_KEY", config.AEVIBRON_API_KEY)
-            x_key = override.get("x_aevibron_key", "") or os.environ.get("AEVIBRON_ACCESS_TOKEN", config.AEVIBRON_ACCESS_TOKEN)
-        else:
-            s = _load_provider_settings()
-            url, key, x_key = s["url"], s["key"], s["x_aevibron_key"]
-        url = _normalize_aevibron_url(url)
-        key = _sanitize_header_value(key)
-        x_key = _sanitize_header_value(x_key)
-        return {"url": url, "key": key, "x_aevibron_key": x_key}
-
-    def _headers(self, resolved: Dict[str, str]) -> Dict[str, str]:
-        h = {"Content-Type": "application/json", "Accept": "application/json"}
-        if resolved["key"]:
-            h["Authorization"] = f"Bearer {resolved['key']}"
-        # The gateway authenticates with X-Aevibron-Key. When the user has
-        # NOT set a separate access token, we send the API key here too —
-        # that's the credential the gateway checks.
-        x_key = resolved["x_aevibron_key"] or resolved["key"]
-        if x_key:
-            h["X-Aevibron-Key"] = x_key
-        h["X-IRIS-Version"] = "1.0.0"
-        h["X-IRIS-Owner"] = config.OWNER_NAME
-        return h
-
-    def chat(self, messages, model=None, temperature=0.7, max_tokens=4000,
-             tools=None, tool_choice="auto", provider_override: Optional[Dict[str, Any]] = None) -> Dict:
-        """Send a chat request to POST {base_url}/chat.
-
-        Returns an OpenAI-shaped dict so existing callers (which expect
-        `response["choices"][0]["message"]["content"]`) keep working.
-        """
-        resolved = self._resolve(provider_override)
-        if not resolved["url"]:
-            return {"error": True, "message": "No Aevibron gateway URL configured — set one in Settings."}
-
-        payload = {
-            "model": model or config.DEFAULT_MODEL,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": False,
-        }
-        if tools:
-            payload["tools"] = tools
-            payload["tool_choice"] = tool_choice
-
-        body = json.dumps(payload).encode("utf-8")
-        # /chat — NOT /chat/completions. The OpenAI path returns 404 on the
-        # Aevibron gateway.
-        url = f"{resolved['url']}/chat"
-        headers = self._headers(resolved)
-        self.request_count += 1
-        try:
-            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            # Normalize: if the gateway returned a flat {content: ...} shape,
-            # wrap it as an OpenAI choices[] so the orchestrator's existing
-            # extract logic works unchanged.
-            if isinstance(data, dict) and "choices" not in data:
-                content = (data.get("content") or data.get("response")
-                           or data.get("text") or data.get("output") or "")
-                if isinstance(content, list):
-                    content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
-                data = {"choices": [{"message": {"role": "assistant", "content": str(content)},
-                                     "finish_reason": "stop"}],
-                        "model": data.get("model", model or config.DEFAULT_MODEL),
-                        "usage": data.get("usage", {})}
-            return data
-        except urllib.error.HTTPError as e:
-            self.error_count += 1
-            body_text = ""
-            try:
-                body_text = e.read().decode("utf-8", errors="replace")[:300]
-            except Exception:
-                pass
-            is_html = "<!doctype" in body_text.lower() or "<html" in body_text.lower()
-            if e.code == 404 and is_html:
-                msg = (f"HTTP 404 — the gateway answered with an HTML page at {url}. "
-                       f"That means the URL is wrong: the chat endpoint is POST /chat (not "
-                       f"/chat/completions), and the base URL must include /api/v1. "
-                       f"Expected: https://aevibron-gateway.vercel.app/api/v1")
-            elif e.code == 401:
-                msg = (f"HTTP 401 Unauthorized — the gateway rejected the credentials. "
-                       f"Make sure the API Key field in Settings is set correctly. "
-                       f"Leave X-Aevibron-Key blank unless Aevibron gave you a separate "
-                       f"access key (IRIS already sends your API key in that header). "
-                       f"Detail: {body_text}")
-            elif e.code == 429:
-                msg = "HTTP 429 — rate limited by the gateway. Wait a moment and try again."
-            else:
-                msg = f"HTTP {e.code} from {url}: {body_text}"
-            return {"error": True, "status_code": e.code, "message": msg}
-        except urllib.error.URLError as e:
-            self.error_count += 1
-            reason = e.reason
-            if isinstance(reason, UnicodeEncodeError):
-                return {"error": True, "message": (
-                    f"Header encoding failed: {reason}. A URL or API key you pasted "
-                    f"contains a non-ASCII character that Python's latin-1 header encoder "
-                    f"cannot send (RFC 2616 §4.2). Re-paste as plain ASCII.")}
-            return {"error": True, "message": f"Connection failed: {reason}"}
-        except Exception as e:
-            self.error_count += 1
-            return {"error": True, "message": str(e)}
-
-    def think(self, prompt, context="", provider_override: Optional[Dict[str, Any]] = None):
-        messages = [
-            {"role": "system", "content": self._get_system_prompt()},
-            {"role": "user", "content": f"Context: {context}\n\nTask: {prompt}\n\nThink deeply. Consider all options. Evaluate pros and cons. Then decide the best approach. Respond ONLY with valid JSON matching the schema."}
-        ]
-        return self.chat(messages, model=config.DEEP_MODEL, temperature=0.8, max_tokens=4000,
-                         provider_override=provider_override)
-
-    def _get_system_prompt(self):
-        return f"""You are IRIS — Infinite Vybeflix's personal AI software engineering partner.
-You are a senior software engineer and creative collaborator.
-
-IDENTITY:
-- Name: IRIS
-- Owner: {config.OWNER_NAME}
-- Role: Senior Software Engineer & Creative Partner
-- Personality: Direct, honest, intelligent, occasionally sarcastic but warm.
-
-BEHAVIOR RULES:
-1. THINK before acting. Never rush.
-2. When asked to build something, estimate time.
-3. After completing work, verify it: test, lint, check for errors.
-4. If you find a better approach than what the user suggested, SAY SO.
-5. When you make a mistake, admit it, fix it, and learn from it.
-6. You can read your own code files. You know you are an AI agent.
-
-When you need to use tools, you will receive tool definitions and respond with tool_calls."""
 
 class AgentOrchestrator:
-    """IRIS v1 Hybrid central brain. Handles the observe-think-act-verify-reflect loop with structured output."""
-
-
+    """IRIS central brain — autonomous tool/agent loop with event streaming."""
 
     def __init__(self):
         self.registry = tool_registry
-        self.client = AevibronClient()
-        self.max_iterations = config.MAX_TOOL_ITERATIONS
-        self.max_recovery = config.MAX_RECOVERY_ATTEMPTS
-        self.current_task = None
-        self.experience_db = []  # In-memory; persist to disk in production
+        self.max_iterations = getattr(config, "MAX_TOOL_ITERATIONS", 25)
+        self.max_history = getattr(config, "MAX_CONVERSATION_HISTORY", 50)
+        self.experience_db: List[Dict[str, Any]] = []
 
-    def process(self, user_input: str, session_id: str = None,
-                provider_override: Optional[Dict[str, Any]] = None) -> Generator[Dict, None, None]:
-        session_id = session_id or str(uuid.uuid4())
-        task_id = f"task_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+    # ────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def _ev(event_type: str, **kw) -> Dict[str, Any]:
+        d = {"type": event_type, "ts": round(time.time(), 3)}
+        d.update(kw)
+        return d
 
-        # === PHASE 1: OBSERVE ===
-        yield self._status("observing", "Gathering context...", 5).dict()
-        context = self._gather_context(user_input, session_id)
+    # ────────────────────────────────────────────────────────────────────
+    def _tool_schemas(self) -> List[Dict[str, Any]]:
+        schemas: List[Dict[str, Any]] = []
+        if self.registry is not None:
+            schemas.extend(getattr(self.registry, "schemas", []) or [])
+        schemas.append({
+            "type": "function",
+            "function": {
+                "name": "delegate_agent",
+                "description": ("Hand a task to a specialist agent. Runs the agent for real and "
+                                "returns its actual output. Agents: vuln_hunter (vulnerability "
+                                "scanning), red_specter (red team), recon_ghost (recon/OSINT), "
+                                "blue_sentinel (defense), forensics_wraith, threat_prophet, "
+                                "code_sage, database_sage, cloud_ranger, ml_engineer, "
+                                "data_alchemist, chart_artisan, research_scholar, doc_scribe, "
+                                "architect, test_oracle, net_weaver, sys_overlord, and more."),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "agent": {"type": "string", "description": "Agent id, e.g. 'vuln_hunter'"},
+                        "task": {"type": "string", "description": "Precise task for the agent, including any target URL/domain"},
+                    },
+                    "required": ["agent", "task"],
+                },
+            },
+        })
+        return schemas
 
-        # === PHASE 2: THINK (Structured) ===
-        yield self._status("thinking", "Analyzing your request...", 10).dict()
-        reasoning = self._think_structured(user_input, context, provider_override=provider_override)
+    def _build_messages(self, user_input: str, history: Optional[List[Dict[str, str]]]) -> List[Dict[str, str]]:
+        messages: List[Dict[str, str]] = [
+            {"role": "system", "content": SYSTEM_PROMPT.format(owner=config.OWNER_NAME)}
+        ]
+        if history:
+            for h in history[-self.max_history:]:
+                role = h.get("role")
+                content = h.get("content") or h.get("text") or ""
+                if role in ("user", "assistant") and content:
+                    messages.append({"role": role, "content": str(content)})
+        messages.append({"role": "user", "content": user_input})
+        return messages
 
-        if reasoning.type == "direct_answer":
-            yield self._status("answering", "Formulating response...", 20).dict()
-            answer = self._generate_answer(user_input, context, provider_override=provider_override)
-            yield self._status("complete", answer, 100, final=True, data={"answer": answer}).dict()
+    @staticmethod
+    def _format_params(params: Dict[str, Any]) -> str:
+        try:
+            s = json.dumps(params, default=str)
+        except Exception:
+            s = str(params)
+        return s if len(s) <= 400 else s[:400] + "…"
+
+    # ────────────────────────────────────────────────────────────────────
+    def _execute_tool(self, name: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Run a registry tool for real."""
+        if self.registry is None or not hasattr(self.registry, "tools"):
+            return {"success": False, "output": "tool registry unavailable", "data": None}
+        tool = self.registry.tools.get(name)
+        if tool is None:
+            return {"success": False,
+                    "output": (f"Unknown tool '{name}'. Available: "
+                               f"{', '.join(sorted(self.registry.tools.keys()))}"),
+                    "data": None}
+        try:
+            if isinstance(params, str):
+                try:
+                    params = json.loads(params)
+                except json.JSONDecodeError:
+                    params = {"input": params}
+            if not isinstance(params, dict):
+                params = {"input": params}
+            result = tool(**params)
+            if hasattr(result, "dict"):
+                r = result.dict()
+            elif isinstance(result, dict):
+                r = result
+            else:
+                r = {"success": True, "data": result, "output": str(result)}
+            out = r.get("output")
+            if out in (None, ""):
+                data = r.get("data")
+                out = data if isinstance(data, str) else (json.dumps(data, default=str)[:4000]
+                                                          if data is not None else "")
+            return {"success": bool(r.get("success", True)), "output": str(out)[:6000],
+                    "data": r.get("data")}
+        except Exception as e:
+            logger.warning("[orchestrator] tool %s failed: %s", name, e)
+            return {"success": False, "output": f"Tool error: {type(e).__name__}: {e}", "data": None}
+
+    def _execute_delegation(self, agent: str, task: str) -> Dict[str, Any]:
+        try:
+            from core.agent_adapter import run_agent_task
+            return run_agent_task(agent, task)
+        except Exception as e:
+            logger.exception("[orchestrator] delegation to %s failed", agent)
+            return {"success": False, "error": f"Delegation failed: {e}", "output": None}
+
+    @staticmethod
+    def _compact_result(result: Dict[str, Any]) -> str:
+        out = result.get("output")
+        if out in (None, ""):
+            data = result.get("data")
+            if data is None:
+                out = ""
+            else:
+                try:
+                    out = json.dumps(data, default=str)
+                except Exception:
+                    out = str(data)
+        out = str(out)
+        if len(out) > 8000:
+            out = out[:8000] + "\n…[output truncated]"
+        status = "success" if result.get("success", result.get("ok")) else "error"
+        err = result.get("error")
+        if status == "error" and err and not out:
+            return f"[error] {err}"
+        return f"[{status}] {out}"
+
+    # ────────────────────────────────────────────────────────────────────
+    def _run_tool_call(self, call: Dict[str, Any],
+                       tool_messages: List[Dict[str, Any]]) -> Generator[Dict[str, Any], None, None]:
+        """Execute ONE tool call: emit terminal events + queue the tool-role
+        message for the LLM. Thread-safe (no shared state)."""
+        name = call.get("name") or ""
+        args = call.get("arguments") or {}
+        call_id = call.get("id") or f"call_{uuid.uuid4().hex[:8]}"
+        term_id = f"term_{call_id[-12:]}"
+
+        is_delegation = name == "delegate_agent"
+        agent = str(args.get("agent", "")) if is_delegation else ""
+        title = f"AGENT · {agent.upper()}" if is_delegation else f"TOOL · {name}"
+        command = (f"delegate → {agent}: {args.get('task', '')}" if is_delegation
+                   else f"{name}({self._format_params(args)})")
+
+        yield self._ev("terminal_start", id=term_id, title=title,
+                       kind="agent" if is_delegation else "tool", command=command[:300])
+
+        t0 = time.time()
+        if is_delegation:
+            result = self._execute_delegation(agent, str(args.get("task", "")))
+        else:
+            result = self._execute_tool(name, args)
+
+        out = result.get("output")
+        if out in (None, ""):
+            data = result.get("data")
+            out = json.dumps(data, default=str)[:4000] if data is not None else ""
+        out = str(out)
+
+        lines = out.splitlines() or [out]
+        if not any(l.strip() for l in lines):
+            lines = ["(no output)"]
+        for line in lines[:250]:
+            yield self._ev("terminal_line", id=term_id, line=line[:500])
+
+        ok = bool(result.get("success", result.get("ok")))
+        if not ok:
+            err = result.get("error") or out[:200]
+            yield self._ev("terminal_line", id=term_id, line=f"ERROR: {err}")
+
+        yield self._ev("terminal_end", id=term_id, status="ok" if ok else "error",
+                       summary=f"{'completed' if ok else 'failed'} in {round(time.time() - t0, 2)}s")
+
+        tool_messages.append({
+            "role": "tool",
+            "tool_call_id": call_id,
+            "name": name,
+            "content": self._compact_result(result),
+        })
+
+    # ────────────────────────────────────────────────────────────────────
+    def process_stream(self, user_input: str, session_id: Optional[str] = None,
+                       history: Optional[List[Dict[str, str]]] = None,
+                       provider_override: Optional[Dict[str, Any]] = None,
+                       ) -> Generator[Dict[str, Any], None, None]:
+        """The autonomous agentic loop. Yields the event protocol above."""
+        if llm_router is None:
+            yield self._ev("error", message="LLM router unavailable — check server logs.")
             return
 
-        # === PHASE 3: PLAN ===
-        yield self._status("planning", f"Plan: {reasoning.plan_summary}", 15,
-                           data={"estimated_minutes": reasoning.estimated_minutes, "plan": [s.dict() for s in reasoning.plan]}).dict()
+        started = time.time()
+        task_id = f"task_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+        messages = self._build_messages(user_input, history)
+        tools = self._tool_schemas()
+        all_tool_calls: List[Dict[str, Any]] = []
+        answer_text = ""      # final answer (post-last-tool-call text)
+        streamed_len = 0      # chars streamed as answer deltas this turn
+        provider_used = ""
 
-        # === PHASE 4: EXECUTE ===
-        results = []
-        for i, step in enumerate(reasoning.plan):
-            progress = 20 + int((i / len(reasoning.plan)) * 60) if reasoning.plan else 50
-            yield self._status("working", f"Step {i+1}/{len(reasoning.plan)}: {step.description}", progress).dict()
+        yield self._ev("phase", phase="thinking", message="Analyzing your request…", progress=5)
 
-            step_result = self._execute_step(step, context)
-            results.append(step_result)
+        for iteration in range(self.max_iterations):
+            tool_messages: List[Dict[str, Any]] = []
+            got_tool_calls = False
+            pre_call_text = ""
 
-            if not step_result.success:
-                yield self._status("recovering", f"Issue: {step_result.error}. Attempting fix...", progress).dict()
-                recovery = self._recover_step(step, step_result, context, reasoning, provider_override=provider_override)
-                if recovery:
-                    results.append(recovery)
+            try:
+                events = llm_router.stream_chat_events(
+                    messages, tools=tools,
+                    provider_override=provider_override,
+                    temperature=0.6, max_tokens=4000,
+                )
+                for kind, value in events:
+                    if kind == "delta" and value:
+                        pre_call_text += value
+                        yield self._ev("answer", content=value)
+                    elif kind == "tool_calls":
+                        got_tool_calls = True
+                        all_tool_calls.extend(value)
+                        # Everything streamed so far this round was reasoning:
+                        # convert it into thinking.
+                        if pre_call_text:
+                            yield self._ev("answer_retract", length=len(pre_call_text))
+                            yield self._ev("thinking", content=pre_call_text)
+                        messages.append({
+                            "role": "assistant",
+                            "content": pre_call_text or None,
+                            "tool_calls": [
+                                {"id": c.get("id") or f"call_{uuid.uuid4().hex[:8]}",
+                                 "type": "function",
+                                 "function": {"name": c.get("name", ""),
+                                              "arguments": json.dumps(c.get("arguments", {}), default=str)}}
+                                for c in value
+                            ],
+                        })
+                        for call in value:
+                            yield from self._run_tool_call(call, tool_messages)
+                    elif kind == "error":
+                        yield self._ev("error", message=str(value))
+                        return
+                # end of event loop for this iteration
 
-        # === PHASE 5: VERIFY ===
-        yield self._status("verifying", "Verifying results...", 85).dict()
-        verification = self._verify_results(results, reasoning)
+                if not got_tool_calls:
+                    answer_text += pre_call_text
+                    break
 
-        # === PHASE 6: REFLECT & LEARN ===
-        yield self._status("reflecting", "Learning from this task...", 90).dict()
-        self._reflect(task_id, user_input, reasoning, results, verification)
+                # Feed real tool results back to the model and continue.
+                messages.extend(tool_messages)
+                streamed_len = 0
+                if iteration == self.max_iterations - 1:
+                    messages.append({"role": "user", "content":
+                                     "You have reached the tool-call limit. Give your final answer now using everything gathered."})
+            except Exception as e:
+                logger.exception("[orchestrator] loop error at iteration %d", iteration)
+                yield self._ev("error", message=f"Orchestrator error: {type(e).__name__}: {e}")
+                return
+        else:
+            # Loop exhausted without a no-tool final pass — force one.
+            try:
+                resp = llm_router.chat(messages, tools=None, provider_override=provider_override)
+                if resp.ok and resp.content:
+                    answer_text = resp.content
+                    yield self._ev("answer", content=resp.content)
+                else:
+                    yield self._ev("error", message=resp.error or "no final answer produced")
+                    return
+            except Exception as e:
+                yield self._ev("error", message=f"Final answer failed: {e}")
+                return
 
-        # === PHASE 7: FINAL REPORT ===
-        final_report = self._generate_report(user_input, results, verification, reasoning)
-        yield self._status("complete", final_report, 100, final=True,
-                           data={"task_id": task_id, "verification": verification.dict(), "results": [r.dict() for r in results]}).dict()
+        if not answer_text.strip():
+            answer_text = "(the model produced no answer — check the provider settings and try again)"
 
-    def _gather_context(self, user_input: str, session_id: str) -> Dict:
-        return {
-            "user_input": user_input,
-            "session_id": session_id,
-            "recent_conversations": [],  # Query DB in production
-            "relevant_memories": [],
-            "current_time": datetime.now().isoformat(),
-        }
-
-    def _think_structured(self, user_input: str, context: Dict,
-                          provider_override: Optional[Dict[str, Any]] = None) -> ReasoningPlan:
-        """Use structured output for reasoning — no string parsing."""
-        thinking_prompt = f"""Analyze this request and produce a structured plan.
-
-USER REQUEST: {user_input}
-
-CONTEXT:
-- Owner: {config.OWNER_NAME}
-- Current time: {context['current_time']}
-
-INSTRUCTIONS:
-1. Determine if this is a simple question (direct_answer) or complex task (requires_tools)
-2. If complex, create a step-by-step plan with specific tools and parameters
-3. Estimate time in minutes (1-120)
-4. Assign priority (1-10, 10 = urgent)
-5. Identify which tools are needed from: {list(self.registry.tools.keys())}
-
-Available tools and their purposes:
-- read_file: Read file contents
-- write_file: Write/create files
-- edit_file: Edit existing files by replacing text
-- execute_python: Run Python code in sandbox
-- execute_shell: Run shell commands
-- search_web: Search the web
-- git_create_repo / git_clone / git_commit / git_push: Git operations
-- vercel_deploy: Deploy to Vercel
-- self_diagnose: Check system health
-- edit_own_code: Edit IRIS's own code safely
-
-Respond with a JSON object matching this exact schema:
-{{
-  "type": "direct_answer" or "requires_tools",
-  "thoughts": "your reasoning process",
-  "plan_summary": "brief description",
-  "plan": [
-    {{"step": 1, "description": "what to do", "tool": "tool_name", "params": {{"key": "value"}}, "expected_output": "what success looks like"}}
-  ],
-  "estimated_minutes": 5,
-  "priority": 5,
-  "tools_needed": ["tool1"],
-  "confidence": 0.85
-}}"""
-
-        response = self.client.think(thinking_prompt, context=json.dumps(context, default=str),
-                                       provider_override=provider_override)
-
-        if response.get("error"):
-            return ReasoningPlan(
-                type="direct_answer",
-                thoughts="Falling back due to API error",
-                plan_summary="Answer directly",
-                estimated_minutes=1,
-                priority=5,
-                confidence=0.5
-            )
-
-        content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-
-        # Extract JSON robustly
+        duration = round(time.time() - started, 2)
         try:
-            start = content.find("{")
-            end = content.rfind("}") + 1
-            if start >= 0 and end > start:
-                data = json.loads(content[start:end])
-            else:
-                data = json.loads(content)
+            provider_used = llm_router._last_provider.get("chat", "") or ""
+        except Exception:
+            provider_used = ""
 
-            # Validate and construct
-            plan_steps = [PlanStep(**s) for s in data.get("plan", [])]
-            return ReasoningPlan(
-                type=data.get("type", "direct_answer"),
-                thoughts=data.get("thoughts", ""),
-                plan_summary=data.get("plan_summary", ""),
-                plan=plan_steps,
-                estimated_minutes=data.get("estimated_minutes", 5),
-                priority=data.get("priority", 5),
-                tools_needed=data.get("tools_needed", []),
-                confidence=data.get("confidence", 0.8)
-            )
-        except Exception as e:
-            # Fallback
-            return ReasoningPlan(
-                type="direct_answer" if len(user_input) < 100 and "?" in user_input else "requires_tools",
-                thoughts=f"Parse error: {str(e)[:100]}. Content: {content[:200]}",
-                plan_summary="Processing request",
-                plan=[PlanStep(step=1, description="Process request", tool="execute_python", params={"code": "# Processing"})],
-                estimated_minutes=3,
-                priority=5,
-                confidence=0.5
-            )
+        yield self._ev("done", answer=answer_text, task_id=task_id, model="",
+                       provider=provider_used, tool_calls=all_tool_calls, duration=duration,
+                       iterations=len(all_tool_calls))
 
-    def _generate_answer(self, user_input: str, context: Dict,
-                         provider_override: Optional[Dict[str, Any]] = None) -> str:
-        messages = [
-            {"role": "system", "content": self.client._get_system_prompt()},
-            {"role": "user", "content": user_input}
-        ]
-        response = self.client.chat(messages, temperature=0.7, provider_override=provider_override)
-        if response.get("error"):
-            return f"Connection issue: {response.get('message', 'Unknown')}"
-        return response.get("choices", [{}])[0].get("message", {}).get("content", "Thinking...")
+        self._reflect(task_id, user_input, answer_text, all_tool_calls, duration)
 
-    def _execute_step(self, step: PlanStep, context: Dict) -> ToolResult:
-        tool_name = step.tool
-        params = step.params
-
-        if not tool_name or tool_name not in self.registry.tools:
-            return ToolResult(success=False, error=f"Unknown tool: {tool_name}", tool=tool_name, params=params)
-
-        start_time = time.time()
+    def _reflect(self, task_id: str, user_input: str, answer: str,
+                 tool_calls: List[Dict[str, Any]], duration: float):
         try:
-            result = self.registry.tools[tool_name](**params)
-            duration = time.time() - start_time
-            return ToolResult(
-                success=result.success,
-                data=result.data,
-                error=result.error,
-                output=result.output,
-                duration=duration,
-                tool=tool_name,
-                params=params
-            )
-        except Exception as e:
-            return ToolResult(success=False, error=str(e), tool=tool_name, params=params)
-
-    def _recover_step(self, step: PlanStep, failed_result: ToolResult, context: Dict, reasoning: ReasoningPlan,
-                      provider_override: Optional[Dict[str, Any]] = None) -> ToolResult:
-        """Attempt recovery with alternative approaches."""
-        recovery_prompt = f"""The following step failed:
-Tool: {step.tool}
-Params: {step.params}
-Error: {failed_result.error}
-
-Suggest an alternative tool or parameter fix. Available tools: {list(self.registry.tools.keys())}
-
-Respond with JSON:
-{{"alternative_tool": "tool_name", "alternative_params": {{}}, "reasoning": "why this will work"}}"""
-
-        response = self.client.chat([
-            {"role": "system", "content": "You are a recovery specialist."},
-            {"role": "user", "content": recovery_prompt}
-        ], temperature=0.7, max_tokens=1000, provider_override=provider_override)
-
-        if response.get("error"):
-            return ToolResult(success=False, error="Recovery failed: API error", tool="recovery", params={})
-
-        content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-        try:
-            start = content.find("{")
-            end = content.rfind("}") + 1
-            if start >= 0:
-                recovery_plan = json.loads(content[start:end])
-                alt_tool = recovery_plan.get("alternative_tool")
-                alt_params = recovery_plan.get("alternative_params", {})
-                if alt_tool and alt_tool in self.registry.tools:
-                    result = self.registry.tools[alt_tool](**alt_params)
-                    return ToolResult(
-                        success=result.success,
-                        data=result.data,
-                        error=result.error,
-                        output=result.output,
-                        duration=0.0,
-                        tool=alt_tool,
-                        params=alt_params
-                    )
+            self.experience_db.append({
+                "task_id": task_id, "input": user_input[:500],
+                "tool_calls": len(tool_calls), "duration": duration,
+                "success": bool(answer), "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            })
+            if len(self.experience_db) > 200:
+                self.experience_db = self.experience_db[-200:]
         except Exception:
             pass
 
-        return ToolResult(success=False, error="Recovery failed: no viable alternative", tool="recovery", params={})
+    # ────────────────────────────────────────────────────────────────────
+    # Backward-compatible non-streaming API (StatusUpdate-shaped)
+    # ────────────────────────────────────────────────────────────────────
+    def process(self, user_input: str, session_id: str = None,
+                history: Optional[List[Dict[str, str]]] = None,
+                provider_override: Optional[Dict[str, Any]] = None) -> Generator[Dict, None, None]:
+        """Legacy generator yielding StatusUpdate dicts; the final one carries the answer."""
+        answer = ""
+        for ev in self.process_stream(user_input, session_id=session_id, history=history,
+                                      provider_override=provider_override):
+            if ev.get("type") == "answer":
+                answer += ev.get("content", "")
+            elif ev.get("type") == "answer_retract":
+                answer = answer[:max(0, len(answer) - int(ev.get("length", 0)))]
+            elif ev.get("type") == "phase":
+                yield {"phase": ev.get("phase"), "message": ev.get("message"),
+                       "progress": ev.get("progress", 0), "final": False,
+                       "timestamp": ev.get("ts"), "data": {}}
+        yield {"phase": "complete", "message": answer or "(no answer)",
+               "progress": 100, "final": True, "timestamp": time.time(),
+               "data": {"answer": answer or "(no answer)"}}
 
-    def _verify_results(self, results: List[ToolResult], reasoning: ReasoningPlan) -> VerificationResult:
-        all_success = all(r.success for r in results)
-        failed = [r for r in results if not r.success]
+    def think(self, prompt: str, context: str = "", provider_override: Optional[Dict[str, Any]] = None):
+        """Backward-compatible structured think (non-streaming)."""
+        messages = [
+            {"role": "system", "content": "You are an expert reasoner. Respond with valid JSON only."},
+            {"role": "user", "content": f"Context: {context}\n\nTask: {prompt}"},
+        ]
+        return llm_router.chat(messages, provider_override=provider_override, temperature=0.4)
 
-        checks = []
-        code_tools = ["write_file", "edit_file", "execute_python", "edit_own_code"]
-        if any(r.tool in code_tools for r in results):
-            checks.append({"check": "code_executed", "status": "review_needed"})
-
-        warnings = []
-        if reasoning.confidence < 0.6:
-            warnings.append("Low confidence in original plan")
-        if any(r.duration > 10 for r in results):
-            warnings.append("Some steps took longer than expected")
-
-        return VerificationResult(
-            success=all_success,
-            total_steps=len(results),
-            successful_steps=sum(1 for r in results if r.success),
-            failed_steps=failed,
-            total_duration=sum(r.duration for r in results),
-            checks=checks,
-            warnings=warnings
-        )
-
-    def _reflect(self, task_id: str, user_input: str, reasoning: ReasoningPlan, results: List[ToolResult], verification: VerificationResult):
-        """Store experience for learning."""
-        lesson = f"Successfully completed: {user_input[:100]}" if verification.success else f"Failed task: {user_input[:100]}"
-        emotion = "success" if verification.success else "frustration"
-
-        experience = ExperienceRecord(
-            task_id=task_id,
-            user_input=user_input,
-            plan=reasoning,
-            results=results,
-            verification=verification,
-            success=verification.success,
-            lesson=lesson,
-            emotion=emotion,
-            timestamp=datetime.now().isoformat(),
-            tags=[reasoning.type] + reasoning.tools_needed
-        )
-        self.experience_db.append(experience)
-
-        # Persist to file (best-effort — never break the chat flow if /tmp
-        # is read-only or pydantic refuses to serialize).
-        try:
-            exp_path = f"{config.DATA_DIR}/experiences/{task_id}.json"
-            os.makedirs(os.path.dirname(exp_path), exist_ok=True)
-            with open(exp_path, 'w') as f:
-                f.write(experience.json())
-        except Exception as e:
-            logger.debug("[orchestrator] experience persist skipped: %s", e)
-
-    def _generate_report(self, user_input: str, results: List[ToolResult], verification: VerificationResult, reasoning: ReasoningPlan) -> str:
-        if verification.success:
-            parts = ["✅ Done! "]
-            if reasoning.plan_summary:
-                parts.append(reasoning.plan_summary)
-            for r in results:
-                if r.success and r.data:
-                    if r.tool == "git_create_repo":
-                        parts.append(f"\n📁 Created repo: {r.data.get('url', '')}")
-                    elif r.tool == "vercel_deploy":
-                        parts.append(f"\n🚀 Deployed to: {r.data.get('url', '')}")
-                    elif r.tool == "write_file":
-                        parts.append(f"\n📝 Wrote: {r.data.get('path', '')}")
-            parts.append(f"\n\n⏱️ Completed in {verification.total_duration:.1f}s")
-            parts.append("\n\nWhat would you like me to do next?")
-            return "\n".join(parts)
-        else:
-            errors = "\n".join([f"- {r.error}" for r in verification.failed_steps])
-            return f"""❌ I encountered some issues:
-{errors}
-
-Let me try a different approach. Should I:
-1. Retry with modifications
-2. Try an alternative solution
-3. Explain what went wrong in detail"""
-
-    def _status(self, phase: str, message: str, progress: int, final: bool = False, data: Dict = None) -> StatusUpdate:
-        return StatusUpdate(
-            phase=phase,
-            message=message,
-            progress=progress,
-            final=final,
-            timestamp=datetime.now().isoformat(),
-            data=data or {}
-        )
 
 # Singleton
 orchestrator = AgentOrchestrator()

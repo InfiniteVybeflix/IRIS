@@ -663,12 +663,18 @@ class BlueSentinel:
         return result
 
     def _action_memory_dump(self, incident: Incident) -> Dict[str, Any]:
-        """Capture memory dump."""
+        """Capture memory dump — REAL attempt with honest failure reporting."""
         result = {"action": "memory_dump", "success": False}
         dump_path = f"/tmp/aegis_memory_dump_{int(time.time())}.raw"
-        rc, out, err = self._execute_shell(f"dd if=/dev/mem of={dump_path} bs=1M count=100 2>&1 || dd if=/dev/kmem of={dump_path} bs=1M count=100 2>&1 || echo 'Memory dump simulated - /dev/mem access restricted'", timeout=30)
-        result["success"] = rc == 0 or "simulated" in (out or "")
-        result["path"] = dump_path
+        rc, out, err = self._execute_shell(
+            f"dd if=/dev/mem of={dump_path} bs=1M count=100 2>&1 || dd if=/dev/kmem of={dump_path} bs=1M count=100 2>&1",
+            timeout=30)
+        result["success"] = rc == 0 and os.path.exists(dump_path) and os.path.getsize(dump_path) > 0
+        if not result["success"]:
+            result["error"] = ("Memory dump NOT captured — /dev/mem access is restricted on this host "
+                               "(a real forensic capture requires root + a LiME-style kernel module). "
+                               f"Underlying output: {(out or err or '')[:200]}")
+        result["path"] = dump_path if result["success"] else None
         result["output"] = out or err
         return result
 
@@ -698,10 +704,13 @@ class BlueSentinel:
         return result
 
     def _action_antivirus_scan(self, incident: Incident) -> Dict[str, Any]:
-        """Run antivirus scan."""
+        """Run antivirus scan — REAL ClamAV scan; honest failure if not installed."""
         result = {"action": "antivirus_scan", "success": False}
-        rc, out, err = self._execute_shell("clamscan -r /tmp 2>&1 || echo 'ClamAV not installed - scan simulated'", timeout=120)
-        result["success"] = rc == 0 or "simulated" in (out or "")
+        rc, out, err = self._execute_shell("clamscan -r /tmp 2>&1", timeout=120)
+        result["success"] = rc == 0
+        if not result["success"]:
+            result["error"] = ("ClamAV is not installed on this host (or failed) — install it "
+                               "(apt install clamav) to run a REAL scan. No simulated results are reported.")
         result["output"] = out or err
         return result
 
@@ -713,9 +722,9 @@ class BlueSentinel:
                 ip = event.raw_data["remote_addr"].get("ip", "")
                 if ip and ip not in result["blocked"]:
                     rc, out, err = self._execute_shell(f"iptables -A INPUT -s {ip} -j DROP 2>&1", timeout=5)
-                    if rc == 0 or "simulated" in (out or ""):
+                    if rc == 0:
                         result["blocked"].append(ip)
-        result["success"] = True
+        result["success"] = len(result["blocked"]) > 0
         return result
 
     def _action_identify_data_scope(self, incident: Incident) -> Dict[str, Any]:
@@ -741,8 +750,11 @@ class BlueSentinel:
 
     def _action_disable_remote_access(self, incident: Incident) -> Dict[str, Any]:
         result = {"action": "disable_remote_access", "success": False}
-        rc, out, err = self._execute_shell("systemctl stop sshd 2>&1 || service ssh stop 2>&1 || echo 'SSH stop simulated'", timeout=10)
-        result["success"] = rc == 0 or "simulated" in (out or "")
+        rc, out, err = self._execute_shell("systemctl stop sshd 2>&1 || service ssh stop 2>&1", timeout=10)
+        result["success"] = rc == 0
+        if not result["success"]:
+            result["error"] = ("Could not stop SSH on this host (needs root privileges, or sshd is "
+                               "managed differently). Manual action required.")
         result["output"] = out or err
         return result
 

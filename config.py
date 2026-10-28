@@ -8,7 +8,10 @@ load_dotenv()
 
 class Config:
     # ─── Aevibron Gateway ───
-    AEVIBRON_BASE_URL = os.getenv("AEVIBRON_BASE_URL", "https://aevibron-gateway.vercel.app/api/v1")
+    # Primary: the custom domain. The vercel.app mirror is used as an
+    # automatic fallback in core/llm_router.py when the primary is unreachable.
+    AEVIBRON_BASE_URL = os.getenv("AEVIBRON_BASE_URL", "https://aevibron-gateway.veecel.app/api/v1")
+    AEVIBRON_FALLBACK_URL = os.getenv("AEVIBRON_FALLBACK_URL", "https://aevibron-gateway.vercel.app/api/v1")
     AEVIBRON_API_KEY = os.getenv("AEVIBRON_API_KEY", "")
     AEVIBRON_ACCESS_TOKEN = os.getenv("AEVIBRON_ACCESS_TOKEN", "")
 

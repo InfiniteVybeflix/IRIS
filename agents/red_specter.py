@@ -268,11 +268,17 @@ class RedSpecter(BaseAgent):
     def _execute_impl(self, task: Task) -> Any:
         """
         Route incoming tasks to appropriate offensive methods.
+
+        REAL MODE IS THE DEFAULT. IRIS never fabricates security findings —
+        every scan/probe is an actual network operation, and anything that
+        cannot run in this environment is reported as not-run with the reason.
         """
         payload = task.payload
         request = payload.get("original_request", task.description).lower()
-        target = payload.get("target", "simulated-target")
-        real_mode = payload.get("real_mode", False)
+        # Extract a REAL target (URL/domain/IP) from the request — never a
+        # made-up placeholder.
+        target = payload.get("target") or self._extract_target_from(request or "")
+        real_mode = payload.get("real_mode", True)
 
         # --- Attack Chain ---
         if any(kw in request for kw in ["attack chain", "ttp", "mitre", "attack simulation", "kill chain"]):
@@ -317,6 +323,23 @@ class RedSpecter(BaseAgent):
         # --- Full red team ---
         else:
             return self.full_red_team_assessment(target, payload)
+
+    # --------------------------------------------------------------------------
+    # Target extraction — pull a real URL / domain / IP from free text
+    # --------------------------------------------------------------------------
+    @staticmethod
+    def _extract_target_from(text: str) -> str:
+        import re as _re
+        m = _re.search(r"https?://[^\s'\"<>]+", text)
+        if m:
+            return m.group(0).rstrip(".,;:)")
+        m = _re.search(r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b", text)
+        if m:
+            return m.group(0)
+        m = _re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", text)
+        if m:
+            return m.group(0)
+        return ""
 
     # --------------------------------------------------------------------------
     # Enhanced Dispatchers
@@ -1243,8 +1266,8 @@ class RedSpecter(BaseAgent):
                 iocs.append(self._generate_ioc("domain", c2_host, "DNS tunneling endpoint"))
                 success = True
             else:
-                output.append(f"[C2] Protocol {protocol} simulated")
-                success = True
+                output.append(f"[C2] Protocol '{protocol}' not exercised — only https/dns/dns_tunnel beacons are implemented for real.")
+                success = False
         except Exception as e:
             output.append(f"[C2] Error: {e}")
             success = False
@@ -3434,43 +3457,86 @@ class RedSpecter(BaseAgent):
     # RECONNAISSANCE METHODS
     # --------------------------------------------------------------------------
     def _perform_network_recon(self, target: str, payload: Dict) -> Dict[str, Any]:
-        """Perform real network reconnaissance."""
+        """REAL network reconnaissance — PURE PYTHON (socket + urllib), no
+        external binaries needed, works on serverless. Every result below
+        comes from an actual network operation."""
+        import socket as _socket
+
+        host = (target or "").replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
         results = {
             "target": target,
+            "host": host,
             "recon_type": "network",
+            "mode": "real",
             "timestamp": datetime.utcnow().isoformat(),
             "findings": {},
+            "notes": [],
+        }
+        if not host:
+            results["error"] = "No target provided — give a domain, URL or IP."
+            return results
+
+        # 1. DNS resolution (real)
+        try:
+            infos = _socket.getaddrinfo(host, None)
+            ips = sorted({i[4][0] for i in infos})
+            results["findings"]["dns"] = {"resolved_ips": ips}
+        except Exception as e:
+            results["findings"]["dns"] = {"error": f"resolution failed: {e}"}
+            results["notes"].append("DNS resolution failed — host may not exist.")
+
+        # 2. TCP port scan (real socket connects, common service set)
+        ports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 993, 995, 1433,
+                 3306, 3389, 5432, 5900, 6379, 8080, 8443]
+        open_ports = []
+        banners = {}
+        for port in ports:
+            try:
+                with _socket.create_connection((host, port), timeout=1.5):
+                    open_ports.append(port)
+                    # Banner grab (real)
+                    try:
+                        with _socket.create_connection((host, port), timeout=1.5) as s:
+                            s.settimeout(2)
+                            try:
+                                banner = s.recv(128).decode("utf-8", errors="replace").strip()
+                                if banner:
+                                    banners[str(port)] = banner[:80]
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        results["findings"]["port_scan"] = {
+            "scanned_ports": len(ports), "open_ports": open_ports, "banners": banners,
         }
 
-        # Host discovery
-        rc, out, err, meta = self._execute_shell(
-            f"ping -c 3 {target} 2>&1 || ping -n 3 {target} 2>&1",
-            timeout=15
-        )
-        results["findings"]["host_alive"] = rc == 0
-        results["findings"]["ping_output"] = out or err
+        # 3. HTTP probe (real request + headers)
+        for scheme in ("https", "http"):
+            try:
+                req = urllib.request.Request(
+                    f"{scheme}://{host}/", headers={"User-Agent": "IRIS-RedTeam-Recon/1.0"})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    results["findings"]["http"] = {
+                        "scheme": scheme, "status": resp.status,
+                        "server": resp.headers.get("Server", ""),
+                        "powered_by": resp.headers.get("X-Powered-By", ""),
+                        "title": (resp.read(4096).decode("utf-8", errors="ignore")[:200]),
+                    }
+                    break
+            except urllib.error.HTTPError as e:
+                results["findings"]["http"] = {"scheme": scheme, "status": e.code,
+                                                 "note": "HTTP error (service IS responding)"}
+                break
+            except Exception:
+                continue
 
-        # Port scan (lightweight)
-        rc2, out2, err2, meta2 = self._execute_shell(
-            f"nc -zv -w 2 {target} 22 80 443 3389 445 5985 8080 2>&1 || nmap -sT -p 22,80,443,3389,445,5985,8080 {target} 2>&1 | head -30",
-            timeout=30
-        )
-        results["findings"]["port_scan"] = out2 or err2
-
-        # DNS lookup
-        rc3, out3, err3, meta3 = self._execute_shell(
-            f"nslookup {target} 2>&1 || dig {target} 2>&1 | head -20",
-            timeout=10
-        )
-        results["findings"]["dns_info"] = out3 or err3
-
-        # Whois
-        rc4, out4, err4, meta4 = self._execute_shell(
-            f"whois {target} 2>&1 | head -30",
-            timeout=15
-        )
-        results["findings"]["whois"] = out4 or err4
-
+        results["recommendations"] = [
+            "Close unnecessary open ports found above",
+            "Hide service version banners",
+            "Place services behind a firewall / WAF",
+        ]
         return results
 
     def _perform_host_recon(self, target: str, payload: Dict) -> Dict[str, Any]:
@@ -3479,53 +3545,31 @@ class RedSpecter(BaseAgent):
                                    {"discovery_type": payload.get("discovery_type", "system")})
 
     def _simulate_reconnaissance(self, target: str, payload: Dict) -> Dict[str, Any]:
-        """Simulate reconnaissance activities."""
+        """PLANNING-ONLY reconnaissance outline. IRIS does NOT fabricate scan
+        results — this returns an assessment plan and prompts for a real run.
+        (Kept for API compatibility; the real path is _perform_network_recon.)"""
         recon_type = payload.get("recon_type", "network")
-
-        simulated_findings = {
-            "network": {
-                "open_ports": [22, 80, 443, 3389, 445, 5985, 8080],
-                "services": [
-                    {"port": 22, "service": "SSH", "version": "OpenSSH 8.9p1"},
-                    {"port": 80, "service": "HTTP", "version": "Apache 2.4.41"},
-                    {"port": 443, "service": "HTTPS", "version": "nginx 1.18.0"},
-                    {"port": 3389, "service": "RDP", "version": "Microsoft Terminal Services"},
-                    {"port": 445, "service": "SMB", "version": "Samba 4.15.0"},
-                    {"port": 5985, "service": "WinRM", "version": "Microsoft WinRM 3.0"},
-                    {"port": 8080, "service": "HTTP-Proxy", "version": "Squid 4.10"},
-                ],
-                "os_guess": "Windows Server 2019 or Ubuntu 20.04",
-                "network_segments": ["192.168.1.0/24", "10.0.0.0/16"],
-            },
-            "host": {
-                "hostname": f"{target}-srv01",
-                "os": "Windows Server 2019 Standard",
-                "domain": f"{target}.local",
-                "users": ["administrator", "svc_backup", "svc_sql", "jdoe"],
-                "groups": ["Domain Admins", "Enterprise Admins", "SQL Admins"],
-                "installed_software": ["Microsoft SQL Server 2019", "IIS 10.0", "Python 3.9"],
-                "patches": ["KB5005033", "KB5005030"],
-                "missing_patches": ["KB5005565", "KB5005573"],
-            },
-            "osint": {
-                "employees_found": 150,
-                "email_format": "first.last@{target}.com",
-                "technologies": ["Office 365", "Azure AD", "Salesforce", "Slack"],
-                "subdomains": ["www", "mail", "vpn", "portal", "api"],
-                "social_media": ["LinkedIn: 200 employees", "Twitter: @target_corp"],
-            },
-        }
-
         return {
             "target": target,
             "recon_type": recon_type,
-            "simulated": True,
-            "findings": simulated_findings.get(recon_type, {}),
+            "mode": "planning-only",
+            "note": ("This was a PLANNING request, so no live probes were fired. To get REAL "
+                     "reconnaissance results (DNS, port scan, banners, HTTP probe), ask for a "
+                     "live scan of the target — IRIS performs actual network operations."),
+            "assessment_plan": [
+                "Passive DNS + WHOIS footprint of the target domain",
+                "TCP port scan of the common service set with banner grabs",
+                "HTTP/HTTPS service probe and technology fingerprint",
+                "Public exposure review (sensitive paths, CORS, headers)",
+            ] if recon_type == "network" else [
+                "Host inventory and OS fingerprint",
+                "User/group enumeration review",
+                "Patch level and missing-update assessment",
+            ],
             "recommendations": [
+                "Run a live scan for real findings",
                 "Implement network segmentation",
                 "Disable unnecessary services",
-                "Apply missing security patches",
-                "Reduce OSINT exposure",
             ],
         }
 
