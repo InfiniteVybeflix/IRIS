@@ -2,7 +2,7 @@
 
 EVERY provider is first-class and routed per-request:
   1. aevibron  — Aevibron gateway (POST /chat, X-Aevibron-Key auth, /api/v1 root)
-                 Primary host: https://aevibron-gateway.veecel.app (custom domain)
+                 Primary host: https://aevibron-gateway.vercel.app (custom domain)
                  Fallback host: https://aevibron-gateway.vercel.app (always live)
   2. groq      — Groq Cloud (https://api.groq.com/openai/v1) — pure HTTPS, no SDK needed
   3. openai    — OpenAI or any OpenAI-compatible cloud (OpenRouter, Together, ...)
@@ -80,7 +80,7 @@ def sanitize_url(url) -> str:
 # Provider definitions
 # ─────────────────────────────────────────────────────────────────────────────
 AEVIBRON_PRIMARY_URL = os.environ.get(
-    "AEVIBRON_BASE_URL", "https://aevibron-gateway.veecel.app/api/v1"
+    "AEVIBRON_BASE_URL", "https://aevibron-gateway.vercel.app/api/v1"
 )
 AEVIBRON_FALLBACK_URLS = [
     "https://aevibron-gateway.vercel.app/api/v1",

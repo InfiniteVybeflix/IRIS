@@ -140,7 +140,7 @@ PROVIDERS = {
         "recommended": True,
         "description": "Aevibron's AI gateway — OpenAI-compatible proxy. Recommended for best results.",
         "fields": [
-            {"name": "url", "label": "Gateway URL", "type": "url", "placeholder": "https://aevibron-gateway.veecel.app/api/v1", "required": True,
+            {"name": "url", "label": "Gateway URL", "type": "url", "placeholder": "https://aevibron-gateway.vercel.app/api/v1", "required": True,
              "hint": "Include the /api/v1 path. If you paste the bare host, IRIS adds /api/v1 for you. The vercel.app mirror is used as automatic fallback."},
             {"name": "key", "label": "API Key", "type": "password", "placeholder": "Your Aevibron API key", "required": False,
              "hint": "Sent as the Bearer token AND in X-Aevibron-Key — this is the credential the gateway checks."},
@@ -353,7 +353,7 @@ def _test_openai_compat(provider: str, config: dict, test_prompt: str) -> dict:
     sanitized = False  # set True if we strip any invisible chars from input
 
     if provider == "aevibron":
-        raw_url = (config.get("url") or "https://aevibron-gateway.veecel.app/api/v1").strip().strip("<>").rstrip("/")
+        raw_url = (config.get("url") or "https://aevibron-gateway.vercel.app/api/v1").strip().strip("<>").rstrip("/")
         url = _sanitize_url(raw_url)
         # Users often paste the bare host — the gateway only serves /api/v1.
         if "/api/v1" not in url and not url.endswith("/v1"):
