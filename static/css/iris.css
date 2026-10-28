@@ -1191,25 +1191,39 @@ textarea.input { resize: vertical; }
 .settings-tab:hover { background: var(--panel-3); color: var(--text); }
 .settings-tab.active { background: var(--accent-soft); color: var(--accent); }
 .settings-body { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 16px; padding-bottom: 20px; }
-.provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 9px; margin: 8px 0 4px; }
-.provider-card {
+
+/* ── Account pane ──────────────────────────────────────────────────────── */
+.account-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 11px 13px;
-  cursor: pointer;
+  border-radius: 12px;
   background: var(--panel-2);
-  transition: all var(--speed);
-  display: flex; flex-direction: column; gap: 3px;
+  margin-bottom: 12px;
 }
-.provider-card:hover { border-color: var(--accent-ring); }
-.provider-card.selected { border-color: var(--accent); background: var(--accent-soft); }
-.provider-card .pv-name { font-weight: 700; font-size: 13px; }
-.provider-card .pv-state { font-size: 11px; color: var(--muted); }
-.provider-card .pv-state.on { color: var(--ok); }
-#provider-fields { margin-top: 12px; display: flex; flex-direction: column; gap: 12px; }
-.pf-row { display: flex; flex-direction: column; gap: 5px; max-width: 560px; }
-.pf-label { font-size: 12.5px; font-weight: 650; color: var(--text-2); }
-.pf-hint { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+
+/* ── User chip (sidebar foot) ───────────────────────────────────────────── */
+.user-chip {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--panel-2);
+  margin-bottom: 8px;
+  min-width: 0;
+}
+.u-avatar {
+  width: 28px; height: 28px; border-radius: 50%; flex: none;
+  object-fit: cover; background: var(--panel-3);
+}
+.u-avatar.lg { width: 44px; height: 44px; }
+.u-initials { display: grid; place-items: center; font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-soft); }
+.u-avatar.lg.u-initials { font-size: 15px; }
+.u-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.u-name { font-size: 12.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.u-email { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-chip .icon-btn { width: 26px; height: 26px; }
+.user-chip .icon-btn svg { width: 14px; height: 14px; }
 .models-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
 .model-card {
   border: 1px solid var(--border);
@@ -1297,6 +1311,37 @@ textarea.input { resize: vertical; }
 }
 .modal-head h3 { margin: 0; font-size: 15px; }
 .modal-body { padding: 16px 18px 18px; overflow-y: auto; }
+
+/* ── Sign-in overlay (Google Sign-In gate) ────────────────────────────── */
+.signin-overlay {
+  position: fixed; inset: 0;
+  z-index: 400;
+  background: var(--bg);
+  display: grid; place-items: center;
+  padding: 24px;
+}
+.signin-card {
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center;
+  max-width: 400px;
+  animation: fadeUp .3s ease;
+}
+.signin-mark { margin-bottom: 14px; }
+.signin-mark .hero-logo { width: 76px; height: 76px; }
+.signin-card h1 {
+  margin: 0; font-size: 30px; font-weight: 800;
+  letter-spacing: .14em; 
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+.signin-sub { margin: 6px 0 4px; font-size: 13px; color: var(--muted); }
+.signin-note { margin: 10px 0 22px; font-size: 13.5px; color: var(--text-2); line-height: 1.6; }
+.gsi-button { min-height: 44px; display: flex; justify-content: center; width: 100%; }
+.signin-status {
+  margin-top: 16px; font-size: 12.5px; color: var(--warn);
+  line-height: 1.55; max-width: 340px;
+}
 
 /* ── Voice pop ───────────────────────────────────────────────────────────── */
 .voice-pop {

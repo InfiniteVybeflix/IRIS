@@ -7,13 +7,25 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Config:
-    # ─── Aevibron Gateway ───
-    # Primary: the custom domain. The vercel.app mirror is used as an
-    # automatic fallback in core/llm_router.py when the primary is unreachable.
-    AEVIBRON_BASE_URL = os.getenv("AEVIBRON_BASE_URL", "https://aevibron-gateway.vercel.app/api/v1")
-    AEVIBRON_FALLBACK_URL = os.getenv("AEVIBRON_FALLBACK_URL", "https://aevibron-gateway.vercel.app/api/v1")
+    # ─── AI Gateway (SERVER-SIDE ONLY — never exposed to the frontend) ───
+    # Both AEVIBRON_BASE_URL and AEVIBRON_API_KEY MUST be set in the server
+    # environment (Vercel → Settings → Environment Variables). There are NO
+    # defaults and NO fallback URLs on purpose: missing config fails loudly
+    # in the server logs with a generic client-facing message.
+    # Auth header sent to the gateway: X-Aevibron-Key: <AEVIBRON_API_KEY>
+    AEVIBRON_BASE_URL = os.getenv("AEVIBRON_BASE_URL", "")
     AEVIBRON_API_KEY = os.getenv("AEVIBRON_API_KEY", "")
+    # Optional model override — empty means the gateway's own default model.
+    AEVIBRON_MODEL = os.getenv("AEVIBRON_MODEL", "")
+    # Legacy alias kept so older modules keep importing — no longer used for auth.
     AEVIBRON_ACCESS_TOKEN = os.getenv("AEVIBRON_ACCESS_TOKEN", "")
+
+    # ─── Auth (Google Sign-In + sessions) ───
+    GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+    IRIS_SESSION_SECRET = os.getenv("IRIS_SESSION_SECRET", "")
+    # Optional comma-separated list of allowed e-mail domains (e.g.
+    # "aevibron.com"). Empty = any Google account may sign in.
+    ALLOWED_EMAIL_DOMAINS = os.getenv("ALLOWED_EMAIL_DOMAINS", "")
 
     # ─── GitHub / Vercel ───
     GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
@@ -88,16 +100,18 @@ class Config:
     MAX_CONVERSATION_HISTORY = int(os.getenv("MAX_CONVERSATION_HISTORY", "50"))
 
     # ─── Aevibron Text Models ───
-    DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "Aevibron Core")
-    FAST_MODEL = os.getenv("FAST_MODEL", "Aevibron Flash")
-    DEEP_MODEL = os.getenv("DEEP_MODEL", "Aevibron Prime")
-    LIGHTNING_MODEL = os.getenv("LIGHTNING_MODEL", "Aevibron Swift")
-    VISION_MODEL = os.getenv("VISION_MODEL", "Aevibron Vision")
-    SPEECH_MODEL = os.getenv("SPEECH_MODEL", "Aevibron Speech")
-    AUDIO_MODEL = os.getenv("AUDIO_MODEL", "Aevibron Audio")
-    MULTILINGUAL_MODEL = os.getenv("MULTILINGUAL_MODEL", "Aevibron Quantum")
-    AGENTIC_MODEL = os.getenv("AGENTIC_MODEL", "Aevibron Compound")
-    OSS_MODEL = os.getenv("OSS_MODEL", "Aevibron OSS")
+    # Model aliases — all optional. Empty means "let the gateway pick its
+    # default"; set any of them via env vars to pin specific models.
+    DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "")
+    FAST_MODEL = os.getenv("FAST_MODEL", "")
+    DEEP_MODEL = os.getenv("DEEP_MODEL", "")
+    LIGHTNING_MODEL = os.getenv("LIGHTNING_MODEL", "")
+    VISION_MODEL = os.getenv("VISION_MODEL", "")
+    SPEECH_MODEL = os.getenv("SPEECH_MODEL", "")
+    AUDIO_MODEL = os.getenv("AUDIO_MODEL", "")
+    MULTILINGUAL_MODEL = os.getenv("MULTILINGUAL_MODEL", "")
+    AGENTIC_MODEL = os.getenv("AGENTIC_MODEL", "")
+    OSS_MODEL = os.getenv("OSS_MODEL", "")
 
     # ─── Aevibron Image Models ───
     IMAGINE_V1_MODEL = os.getenv("IMAGINE_V1_MODEL", "Aevibron Imagine V1")

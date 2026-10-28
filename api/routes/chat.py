@@ -1,19 +1,24 @@
-"""IRIS v2 Chat Routes — sessions, streaming, edit/retry/delete.
+"""IRIS Chat Routes — sessions, streaming, edit/retry/delete.
 
-Endpoints:
-  POST /api/chat                  — send a message (non-streaming, returns full answer)
+Every route requires a signed-in user (Google Sign-In → Bearer session
+token). Sessions are scoped to the signed-in account, so chat history
+follows the user across devices.
+
+Endpoints (all authed):
+  POST /api/chat                  — send a message (non-streaming, full answer)
   POST /api/chat/stream           — send a message, SSE stream of orchestrator events
-  GET  /api/chat/sessions         — list all chat sessions (history)
+  GET  /api/chat/sessions         — list MY chat sessions
   POST /api/chat/sessions         — create a new session
   GET  /api/chat/sessions/<id>    — one session + its messages
   PATCH /api/chat/sessions/<id>   — rename a session
   DELETE /api/chat/sessions/<id>  — delete a session and all its messages
-  PUT  /api/chat/sessions/<id>/messages/<mid>    — edit a message
+  PUT /api/chat/sessions/<id>/messages/<mid>    — edit a message
   DELETE /api/chat/sessions/<id>/messages/<mid>  — delete a message
-  POST /api/chat/sessions/<id>/retry/<mid>       — retry from a message:
-                                       drops that assistant message and regenerates
+  POST /api/chat/sessions/<id>/retry/<mid>       — retry from a message
 
-All responses are honest: failures return success:false with the real error.
+The AI provider is configured 100% server-side (environment variables) —
+nothing about it is accepted from, or revealed to, the client.
+All failures are honest: success:false with the real error.
 """
 import json
 import re
@@ -23,6 +28,7 @@ from flask import Blueprint, Response, jsonify, request, stream_with_context
 from config import config
 from core.db import db
 from core.orchestrator import orchestrator
+from api.routes.auth import require_auth
 
 try:
     from api.utils.rate_limiter import rate_limit
@@ -31,29 +37,6 @@ except Exception:  # pragma: no cover — rate limiter is optional in tests
         return fn
 
 chat_bp = Blueprint('chat', __name__, url_prefix='/api/chat')
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Provider override (frontend localStorage bridge)
-# ─────────────────────────────────────────────────────────────────────────────
-def _extract_provider_override(data: dict) -> dict:
-    """Build the per-request provider override sent by the frontend.
-
-    Shape: {backend?, url?, key?, x_aevibron_key?, model?, host?, providers?}
-    Only known fields pass through — never trust arbitrary keys.
-    """
-    pc = data.get("provider_config") or {}
-    if not isinstance(pc, dict):
-        return {}
-    out = {}
-    for k in ("url", "key", "x_aevibron_key", "model", "host"):
-        v = pc.get(k)
-        if v and isinstance(v, str):
-            out[k] = v
-    b = pc.get("backend") or pc.get("provider")
-    if b and isinstance(b, str):
-        out["backend"] = b.lower()
-    return out
 
 
 def _session_id(data: dict) -> str:
@@ -69,6 +52,24 @@ def _auto_title(text: str) -> str:
     if not t:
         return "New chat"
     return (t[:48] + "…") if len(t) > 48 else t
+
+
+def _owned_session(session_id: str, user: dict):
+    """Load the session ONLY if it belongs to the signed-in user.
+    Legacy rows (user_id NULL) are claimable by the first signed-in user
+    who opens them — they predate accounts."""
+    meta = db.get_chat_session(session_id)
+    if not meta:
+        return None
+    owner = meta.get("user_id")
+    if owner and owner != user.get("user_id"):
+        return None  # someone else's session — behave exactly like not found
+    if not owner:
+        # Claim the legacy row for this user.
+        db.create_chat_session(session_id, meta.get("title") or "New chat",
+                               user_id=user.get("user_id"))
+        meta = db.get_chat_session(session_id)
+    return meta
 
 
 def _history_for_llm(session_id: str) -> list:
@@ -97,23 +98,25 @@ def _drop_messages_from(session_id: str, message_id):
 # Sessions
 # ─────────────────────────────────────────────────────────────────────────────
 @chat_bp.route('/sessions', methods=['GET'])
-def list_sessions():
+@require_auth
+def list_sessions(user):
     try:
-        rows = db.list_chat_sessions()
+        rows = db.list_chat_sessions(user_id=user.get("user_id"))
         return jsonify({"success": True, "sessions": rows, "count": len(rows)})
     except Exception as e:
         return jsonify({"success": False, "error": f"Could not list sessions: {e}"}), 500
 
 
 @chat_bp.route('/sessions', methods=['POST'])
-def create_session():
+@require_auth
+def create_session(user):
     data = request.get_json(silent=True) or {}
     sid = data.get("session_id") or str(uuid.uuid4())
     if not re.fullmatch(r"[A-Za-z0-9_\-]{6,64}", sid):
         return jsonify({"success": False, "error": "Invalid session id"}), 400
     title = (data.get("title") or "New chat").strip()[:80] or "New chat"
     try:
-        db.create_chat_session(sid, title)
+        db.create_chat_session(sid, title, user_id=user.get("user_id"))
         return jsonify({"success": True, "session": {
             "session_id": sid, "title": title, "message_count": 0, "last_message": None}})
     except Exception as e:
@@ -121,9 +124,10 @@ def create_session():
 
 
 @chat_bp.route('/sessions/<session_id>', methods=['GET'])
-def get_session(session_id):
+@require_auth
+def get_session(user, session_id):
     try:
-        meta = db.get_chat_session(session_id)
+        meta = _owned_session(session_id, user)
         if not meta:
             return jsonify({"success": False, "error": "Session not found"}), 404
         messages = db.get_conversation(session_id, limit=500)
@@ -133,12 +137,15 @@ def get_session(session_id):
 
 
 @chat_bp.route('/sessions/<session_id>', methods=['PATCH'])
-def rename_session(session_id):
+@require_auth
+def rename_session(user, session_id):
     data = request.get_json(silent=True) or {}
     title = (data.get("title") or "").strip()[:80]
     if not title:
         return jsonify({"success": False, "error": "title required"}), 400
     try:
+        if not _owned_session(session_id, user):
+            return jsonify({"success": False, "error": "Session not found"}), 404
         db.rename_chat_session(session_id, title)
         return jsonify({"success": True, "session_id": session_id, "title": title})
     except Exception as e:
@@ -146,8 +153,11 @@ def rename_session(session_id):
 
 
 @chat_bp.route('/sessions/<session_id>', methods=['DELETE'])
-def delete_session(session_id):
+@require_auth
+def delete_session(user, session_id):
     try:
+        if not _owned_session(session_id, user):
+            return jsonify({"success": False, "error": "Session not found"}), 404
         db.delete_chat_session(session_id)
         return jsonify({"success": True, "deleted": session_id})
     except Exception as e:
@@ -155,12 +165,15 @@ def delete_session(session_id):
 
 
 @chat_bp.route('/sessions/<session_id>/messages/<message_id>', methods=['PUT'])
-def edit_message(session_id, message_id):
+@require_auth
+def edit_message(user, session_id, message_id):
     data = request.get_json(silent=True) or {}
     content = data.get("content")
     if not content or not isinstance(content, str):
         return jsonify({"success": False, "error": "content required"}), 400
     try:
+        if not _owned_session(session_id, user):
+            return jsonify({"success": False, "error": "Session not found"}), 404
         db.update_message(message_id, content)
         db.touch_chat_session(session_id)
         return jsonify({"success": True, "message_id": message_id, "content": content})
@@ -169,8 +182,11 @@ def edit_message(session_id, message_id):
 
 
 @chat_bp.route('/sessions/<session_id>/messages/<message_id>', methods=['DELETE'])
-def delete_message(session_id, message_id):
+@require_auth
+def delete_message(user, session_id, message_id):
     try:
+        if not _owned_session(session_id, user):
+            return jsonify({"success": False, "error": "Session not found"}), 404
         db.delete_message(message_id)
         return jsonify({"success": True, "deleted": message_id})
     except Exception as e:
@@ -182,11 +198,11 @@ def delete_message(session_id, message_id):
 # ─────────────────────────────────────────────────────────────────────────────
 @chat_bp.route('', methods=['POST'])
 @rate_limit
-def chat():
-    data = request.get_json() or {}
+@require_auth
+def chat(user):
+    data = request.get_json(silent=True) or {}
     user_input = (data.get('message') or '').strip()
     session_id = _session_id(data)
-    provider_override = _extract_provider_override(data)
 
     if not user_input:
         return jsonify({"success": False, "error": "No message provided"}), 400
@@ -195,7 +211,13 @@ def chat():
     try:
         existing = db.get_chat_session(session_id)
         if not existing:
-            db.create_chat_session(session_id, _auto_title(user_input))
+            db.create_chat_session(session_id, _auto_title(user_input),
+                                   user_id=user.get("user_id"))
+        elif not existing.get("user_id"):
+            db.create_chat_session(session_id, existing.get("title") or "New chat",
+                                   user_id=user.get("user_id"))  # claim legacy row
+        elif existing.get("user_id") != user.get("user_id"):
+            return jsonify({"success": False, "error": "Session not found"}), 404
     except Exception:
         pass
 
@@ -210,7 +232,7 @@ def chat():
     events = []
     try:
         for ev in orchestrator.process_stream(user_input, session_id=session_id,
-                                              history=history, provider_override=provider_override):
+                                              history=history):
             events.append(ev)
             if ev.get("type") == "answer":
                 answer += ev.get("content", "")
@@ -223,7 +245,6 @@ def chat():
         return jsonify({"success": False, "error": f"Orchestrator failed: {e}",
                         "session_id": session_id}), 500
 
-    tool_calls = []
     done_ev = next((e for e in events if e.get("type") == "done"), {})
     tool_calls = done_ev.get("tool_calls", [])
 
@@ -241,7 +262,6 @@ def chat():
         "success": True,
         "response": answer,
         "session_id": session_id,
-        "provider": done_ev.get("provider", ""),
         "tool_calls": [{"name": t.get("name")} for t in tool_calls],
         "events": [e for e in events if e.get("type") in ("thinking", "terminal_start", "terminal_end")],
         "duration": done_ev.get("duration"),
@@ -253,11 +273,11 @@ def chat():
 # ─────────────────────────────────────────────────────────────────────────────
 @chat_bp.route('/stream', methods=['POST'])
 @rate_limit
-def chat_stream():
-    data = request.get_json() or {}
+@require_auth
+def chat_stream(user):
+    data = request.get_json(silent=True) or {}
     user_input = (data.get('message') or '').strip()
     session_id = _session_id(data)
-    provider_override = _extract_provider_override(data)
 
     if not user_input:
         return jsonify({"success": False, "error": "No message provided"}), 400
@@ -266,7 +286,13 @@ def chat_stream():
     try:
         existing = db.get_chat_session(session_id)
         if not existing:
-            db.create_chat_session(session_id, _auto_title(user_input))
+            db.create_chat_session(session_id, _auto_title(user_input),
+                                   user_id=user.get("user_id"))
+        elif not existing.get("user_id"):
+            db.create_chat_session(session_id, existing.get("title") or "New chat",
+                                   user_id=user.get("user_id"))  # claim legacy row
+        elif existing.get("user_id") != user.get("user_id"):
+            return jsonify({"success": False, "error": "Session not found"}), 404
     except Exception:
         pass
 
@@ -284,8 +310,7 @@ def chat_stream():
         done_meta = {}
         try:
             for ev in orchestrator.process_stream(user_input, session_id=session_id,
-                                                  history=history,
-                                                  provider_override=provider_override):
+                                                  history=history):
                 if ev.get("type") == "answer":
                     answer += ev.get("content", "")
                 elif ev.get("type") == "answer_retract":
@@ -333,13 +358,13 @@ def chat_stream():
 # ─────────────────────────────────────────────────────────────────────────────
 @chat_bp.route('/sessions/<session_id>/retry/<message_id>', methods=['POST'])
 @rate_limit
-def retry_message(session_id, message_id):
+@require_auth
+def retry_message(user, session_id, message_id):
     """Retry: delete the assistant message (and anything after it), then
     stream a new answer for the last user message in the session."""
-    data = request.get_json(silent=True) or {}
-    provider_override = _extract_provider_override(data)
-
     try:
+        if not _owned_session(session_id, user):
+            return jsonify({"success": False, "error": "Session not found"}), 404
         rows = db.get_conversation(session_id, limit=500)
     except Exception as e:
         return jsonify({"success": False, "error": f"Could not load session: {e}"}), 500
@@ -363,8 +388,7 @@ def retry_message(session_id, message_id):
         done_meta = {}
         try:
             for ev in orchestrator.process_stream(prompt, session_id=session_id,
-                                                  history=history,
-                                                  provider_override=provider_override):
+                                                  history=history):
                 if ev.get("type") == "answer":
                     answer += ev.get("content", "")
                 elif ev.get("type") == "answer_retract":

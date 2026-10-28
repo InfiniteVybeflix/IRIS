@@ -2,9 +2,9 @@
 
 The chat brain. A true observe → think → act loop:
 
-  1. The request + recent history go to the LLM THROUGH THE LLM ROUTER
-     (so the provider selected in Settings — Aevibron, Groq, OpenAI,
-     Ollama, custom — is the one that actually answers).
+  1. The request + recent history go to the AI service THROUGH THE LLM
+     ROUTER (server-side configuration — no client-side provider data
+     exists or is accepted; the provider is fixed by the environment).
   2. The LLM is given the full tool schema PLUS a `delegate_agent` tool
      that can hand work to any of the 30 specialist agents. It may call
      tools as many times as it wants (up to MAX_TOOL_ITERATIONS), fully
@@ -273,7 +273,6 @@ class AgentOrchestrator:
     # ────────────────────────────────────────────────────────────────────
     def process_stream(self, user_input: str, session_id: Optional[str] = None,
                        history: Optional[List[Dict[str, str]]] = None,
-                       provider_override: Optional[Dict[str, Any]] = None,
                        ) -> Generator[Dict[str, Any], None, None]:
         """The autonomous agentic loop. Yields the event protocol above."""
         if llm_router is None:
@@ -299,7 +298,6 @@ class AgentOrchestrator:
             try:
                 events = llm_router.stream_chat_events(
                     messages, tools=tools,
-                    provider_override=provider_override,
                     temperature=0.6, max_tokens=4000,
                 )
                 for kind, value in events:
@@ -349,7 +347,7 @@ class AgentOrchestrator:
         else:
             # Loop exhausted without a no-tool final pass — force one.
             try:
-                resp = llm_router.chat(messages, tools=None, provider_override=provider_override)
+                resp = llm_router.chat(messages, tools=None)
                 if resp.ok and resp.content:
                     answer_text = resp.content
                     yield self._ev("answer", content=resp.content)
@@ -361,7 +359,7 @@ class AgentOrchestrator:
                 return
 
         if not answer_text.strip():
-            answer_text = "(the model produced no answer — check the provider settings and try again)"
+            answer_text = "(the model produced no answer — please try again)"
 
         duration = round(time.time() - started, 2)
         try:
@@ -392,12 +390,10 @@ class AgentOrchestrator:
     # Backward-compatible non-streaming API (StatusUpdate-shaped)
     # ────────────────────────────────────────────────────────────────────
     def process(self, user_input: str, session_id: str = None,
-                history: Optional[List[Dict[str, str]]] = None,
-                provider_override: Optional[Dict[str, Any]] = None) -> Generator[Dict, None, None]:
+                history: Optional[List[Dict[str, str]]] = None) -> Generator[Dict, None, None]:
         """Legacy generator yielding StatusUpdate dicts; the final one carries the answer."""
         answer = ""
-        for ev in self.process_stream(user_input, session_id=session_id, history=history,
-                                      provider_override=provider_override):
+        for ev in self.process_stream(user_input, session_id=session_id, history=history):
             if ev.get("type") == "answer":
                 answer += ev.get("content", "")
             elif ev.get("type") == "answer_retract":
@@ -410,13 +406,13 @@ class AgentOrchestrator:
                "progress": 100, "final": True, "timestamp": time.time(),
                "data": {"answer": answer or "(no answer)"}}
 
-    def think(self, prompt: str, context: str = "", provider_override: Optional[Dict[str, Any]] = None):
+    def think(self, prompt: str, context: str = ""):
         """Backward-compatible structured think (non-streaming)."""
         messages = [
             {"role": "system", "content": "You are an expert reasoner. Respond with valid JSON only."},
             {"role": "user", "content": f"Context: {context}\n\nTask: {prompt}"},
         ]
-        return llm_router.chat(messages, provider_override=provider_override, temperature=0.4)
+        return llm_router.chat(messages, temperature=0.4)
 
 
 # Singleton

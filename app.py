@@ -499,36 +499,54 @@ def plugins_search():
     return jsonify(iris.omnis.discover(query))
 
 
-# ─── LLM Router API ─────────────────────────────────────────────────────────
+# ─── AI Service API (generic — reveals nothing about the backend) ───────
 @app.route("/api/llm/status", methods=["GET"])
 def llm_status():
-    from core.llm_router import llm_router
+    """Generic AI-service status: configured + healthy, nothing else.
+    No provider names, no URLs, no keys — employees just see it working."""
+    from core.llm_router import llm_router, is_configured
+    healthy = False
+    if is_configured():
+        try:
+            healthy = llm_router.health_check()
+        except Exception:
+            healthy = False
     return jsonify({
-        "default_backend": llm_router._default_backend_name,
+        "ai_service": "online" if healthy else ("configured" if is_configured() else "offline"),
+        "configured": is_configured(),
+        "healthy": healthy,
         "default_model": llm_router._default_model or None,
-        "fast_model": llm_router._fast_model or None,
-        "deep_model": llm_router._deep_model or None,
-        "backends": llm_router.list_backends(),
     })
 
 @app.route("/api/llm/models", methods=["GET"])
 def llm_models():
+    from api.routes.auth import require_auth
     from core.llm_router import llm_router
-    backend = request.args.get("backend")
+    if not _authed():
+        return jsonify({"success": False, "error": "Sign in required.",
+                        "auth_required": True}), 401
     try:
-        models = llm_router.get_models(backend=backend)
-        return jsonify({"success": True, "backend": backend or llm_router._default_backend_name, "models": models, "count": len(models)})
+        models = llm_router.get_models()
+        return jsonify({"success": True, "models": models, "count": len(models)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 400
+
+
+def _authed() -> bool:
+    from api.routes.auth import current_user
+    return current_user() is not None
+
 
 @app.route("/api/llm/chat", methods=["POST"])
 def llm_chat():
     from core.llm_router import llm_router
-    data = request.get_json() or {}
+    if not _authed():
+        return jsonify({"success": False, "error": "Sign in required.",
+                        "auth_required": True}), 401
+    data = request.get_json(silent=True) or {}
     messages = data.get("messages", [])
     if not messages:
         return jsonify({"success": False, "error": "messages array required"}), 400
-    backend = data.get("backend")
     model = data.get("model")
     stream = data.get("stream", False)
     temperature = float(data.get("temperature", 0.7))
@@ -536,14 +554,13 @@ def llm_chat():
     try:
         if stream:
             def generate():
-                for chunk in llm_router.stream_chat(messages, model=model, backend=backend, temperature=temperature, max_tokens=max_tokens):
+                for chunk in llm_router.stream_chat(messages, model=model, temperature=temperature, max_tokens=max_tokens):
                     yield f"data: {json.dumps({'content': chunk})}\n\n"
                 yield "data: [DONE]\n\n"
             return Response(generate(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-        resp = llm_router.chat(messages, model=model, backend=backend, temperature=temperature, max_tokens=max_tokens)
+        resp = llm_router.chat(messages, model=model, temperature=temperature, max_tokens=max_tokens)
         return jsonify({"success": True, "content": resp.content, "model": resp.model,
-                         "usage": resp.usage, "finish_reason": resp.finish_reason,
-                         "backend": backend or llm_router._default_backend_name})
+                         "usage": resp.usage, "finish_reason": resp.finish_reason})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 

@@ -7,7 +7,7 @@
     <meta name="description" content="IRIS — a multi-agent AI workspace: chat, autonomous agents, and built-in apps.">
     <meta name="theme-color" content="#08090c">
     <link rel="preload" as="image" href="{{ url_for('static', filename='iris-logo.png') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/iris.css', v=3) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/iris.css', v=5) }}">
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='iris-logo.png') }}">
     <link rel="alternate icon" href="{{ url_for('static', filename='icons/favicon.ico') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='iris-logo.png') }}">
@@ -92,6 +92,7 @@
         </nav>
 
         <div class="sidebar-foot">
+            <div class="user-chip" id="user-chip" hidden></div>
             <div class="sysline">
                 <span class="dot" id="sys-dot" data-state="off"></span>
                 <span class="sysline-label" id="sys-label">Connecting…</span>
@@ -119,7 +120,6 @@
                 <span class="topbar-sub" id="view-sub"></span>
             </div>
             <div class="topbar-actions">
-                <span class="chip" id="provider-chip" hidden title="Active LLM provider"></span>
                 <button class="icon-btn" id="voice-btn" title="Voice input" aria-label="Voice input">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 19v3"/></svg>
                 </button>
@@ -138,7 +138,7 @@
                                     <img src="{{ url_for('static', filename='iris-logo.png') }}" alt="IRIS" class="hero-logo">
                                 </div>
                                 <h2>Chat with IRIS</h2>
-                                <p>Ask anything. IRIS thinks, calls real tools and delegates to specialist agents autonomously — every action streams live into rising terminals. Powered by the provider you select in Settings.</p>
+                                <p>Ask anything. IRIS thinks, calls real tools and delegates to specialist agents autonomously — every action streams live into rising terminals.</p>
                                 <div class="hero-chips">
                                     <button class="chip suggest" data-suggest="Scan https://example.com for security vulnerabilities">🔍 Security scan a site</button>
                                     <button class="chip suggest" data-suggest="Search the web for the latest AI news and summarize">🌐 Web research</button>
@@ -595,27 +595,21 @@
             <section class="view" id="view-settings" hidden>
                 <div class="settings-layout">
                     <nav class="settings-nav" aria-label="Settings sections">
-                        <button class="settings-tab active" data-settings-tab="provider">Provider</button>
+                        <button class="settings-tab active" data-settings-tab="account">Account</button>
                         <button class="settings-tab" data-settings-tab="models">Models &amp; scripts</button>
                         <button class="settings-tab" data-settings-tab="integrations">Integrations</button>
                         <button class="settings-tab" data-settings-tab="system">System</button>
                     </nav>
                     <div class="settings-body">
 
-                        <div class="settings-pane" id="settings-provider">
+                        <div class="settings-pane" id="settings-account">
                             <div class="panel">
-                                <div class="panel-head"><h2>LLM provider</h2><span class="badge">select one</span></div>
-                                <p class="muted">Keys are masked by the server after saving. The provider you pick here is the one chat, agents and tools actually use — switching is instant, no restart needed.</p>
-                                <div class="provider-grid" id="provider-grid"><div class="empty-state">Loading providers…</div></div>
-                                <div id="provider-fields"></div>
-                                <div class="form-row">
-                                    <button class="btn btn-secondary" id="provider-test">Test connection</button>
-                                    <button class="btn btn-secondary" id="provider-models">Load models</button>
-                                    <button class="btn btn-primary" id="provider-save">Save settings</button>
-                                </div>
-                                <div class="result-console" id="provider-result" hidden></div>
-                                <label class="check-row"><input type="checkbox" id="auto-select"> Auto-select — IRIS probes configured providers and uses the first working one</label>
-                                <div class="storage-note" id="storage-note" hidden></div>
+                                <div class="panel-head"><h2>Your account</h2><span class="badge" id="account-badge">Google</span></div>
+                                <div id="account-info"><div class="empty-state">Loading…</div></div>
+                                <div class="panel-sep"></div>
+                                <div class="panel-head"><h2>AI service</h2></div>
+                                <p class="muted">The AI service is managed server-side — it just works, on every device, with zero configuration.</p>
+                                <div class="kv-list" id="ai-kv"><div class="empty-state">Loading…</div></div>
                             </div>
                         </div>
 
@@ -645,6 +639,7 @@
                                 <div class="form-row end">
                                     <button class="btn btn-primary" id="integrations-save">Save integrations</button>
                                 </div>
+                                <div class="storage-note" id="storage-note" hidden></div>
                             </div>
                         </div>
 
@@ -714,7 +709,23 @@
 <!-- ─────────── Toasts ─────────── -->
 <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
 
-<script src="{{ url_for('static', filename='js/iris.js', v=3) }}"></script>
+<!-- ─────────── Sign-in overlay (Google Sign-In gate) ─────────── -->
+<div class="signin-overlay" id="signin-overlay">
+    <div class="signin-card">
+        <div class="signin-mark">
+            <img src="{{ url_for('static', filename='iris-logo.png') }}" alt="IRIS" class="hero-logo">
+        </div>
+        <h1>IRIS</h1>
+        <p class="signin-sub">Infinite Reactive Intelligence System</p>
+        <p class="signin-note">Sign in with your Google account to start. Your chats and settings follow you on every device.</p>
+        <div id="gsi-button" class="gsi-button"></div>
+        <p class="signin-status" id="signin-status" hidden></p>
+    </div>
+</div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+    <script src="{{ url_for('static', filename='js/iris.js', v=5) }}"></script>
 <script>
   // Remove the no-anim guard after first paint so transitions/animations
   // don't fire on load (causes a visible theme-flash from default → user pref).

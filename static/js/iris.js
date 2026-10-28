@@ -67,6 +67,18 @@
   /* ── API helper ──────────────────────────────────────────────────────── */
   async function api(path, opts = {}) {
     const { timeout = 60000, silent = false, ...fetchOpts } = opts;
+    // CRITICAL: callers pass plain JS objects as `body`. fetch() would coerce
+    // them to the literal string "[object Object]", and the backend's
+    // request.get_json() then rejects it with 400 Bad Request. Stringify
+    // objects here so ALL POST bodies are valid JSON.
+    if (fetchOpts.body && typeof fetchOpts.body === 'object') {
+      fetchOpts.body = JSON.stringify(fetchOpts.body);
+    }
+    // Attach the session token (Google Sign-In) to every call.
+    const token = Auth.token();
+    if (token) {
+      fetchOpts.headers = { ...(fetchOpts.headers || {}), Authorization: `Bearer ${token}` };
+    }
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeout);
     try {
@@ -76,6 +88,11 @@
       const text = await res.text();
       try { d = JSON.parse(text); } catch { d = { success: false, error: text.slice(0, 300) || res.statusText }; }
       if (!res.ok && d && !d.error) d.error = `HTTP ${res.status}`;
+      // Session expired mid-use → back to the sign-in screen (never on the
+      // auth endpoints themselves, or we would loop).
+      if (res.status === 401 && Auth.token() && !path.startsWith('/api/auth')) {
+        Auth.sessionExpired();
+      }
       if (!res.ok && !silent) {
         const label = (d && d.error) ? String(d.error) : `HTTP ${res.status}`;
         toast(label, 'error', 'Request failed');
@@ -96,9 +113,12 @@
 
   /* SSE streaming over POST fetch */
   async function streamSSE(path, body, onEvent, signal) {
+    const headers = { 'Content-Type': 'application/json' };
+    const token = Auth.token();
+    if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch(path, {
       method: 'POST', signal,
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body || {}),
     });
     if (!res.ok) {
@@ -160,29 +180,38 @@
   };
   Theme.init();
 
-  /* ── Local settings bridge (provider config mirror in localStorage) ──── */
-  const LocalSettings = {
-    KEY: 'iris-provider-config',
-    load() {
-      try { return JSON.parse(localStorage.getItem(this.KEY) || '{}'); } catch { return {}; }
+  /* ── Auth (Google Sign-In — session token stays in this browser) ─────── */
+  const Auth = {
+    KEY: 'iris-session',
+    user: null,
+    token() { try { return localStorage.getItem(this.KEY) || ''; } catch { return ''; } },
+    save(t) { try { localStorage.setItem(this.KEY, t); } catch { /* quota */ } },
+    clear() { try { localStorage.removeItem(this.KEY); } catch { /* ignore */ } this.user = null; },
+    async restore() {
+      const t = this.token();
+      if (!t) return false;
+      try {
+        const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${t}` } });
+        const d = await res.json().catch(() => null);
+        if (res.ok && d && d.signed_in) { this.user = d.user; return true; }
+      } catch { /* offline — fall through to signed-out */ }
+      this.clear();
+      return false;
     },
-    save(cfg) {
-      try { localStorage.setItem(this.KEY, JSON.stringify(cfg || {})); } catch { /* quota */ }
+    sessionExpired() {
+      if (!this.token()) return;
+      this.clear();
+      showSignIn(true);
+      toast('Your session expired — please sign in again.', 'warn');
     },
-    /* The override sent with every chat request so the orchestrator uses the
-       provider picked in Settings even before server-side persistence. */
-    getProviderConfig() {
-      const c = this.load();
-      const out = {};
-      if (c.backend) out.backend = c.backend;
-      for (const k of ['url', 'key', 'x_aevibron_key', 'model', 'host']) {
-        if (c[k]) out[k] = c[k];
-      }
-      return out;
+    signOut() {
+      this.clear();
+      showSignIn();
+      toast('Signed out.', 'success');
     },
   };
 
-  /* ── Health / provider chip ──────────────────────────────────────────── */
+  /* ── Health / user chip ────────────────────────────────────────────── */
   let healthTimer = null;
   async function pollHealth() {
     const dot = $('#sys-dot');
@@ -202,18 +231,21 @@
     pollHealth();
     healthTimer = setInterval(pollHealth, 30000);
   }
-  async function refreshProviderChip() {
-    try {
-      const s = await api('/api/iris/settings', { silent: true, timeout: 15000 });
-      const chip = $('#provider-chip');
-      if (!s) return;
-      const backend = s.llm_backend || 'auto';
-      const names = { aevibron: 'Aevibron', groq: 'Groq', openai: 'OpenAI', ollama_local: 'Ollama', ollama_cloud: 'Ollama·cloud', custom: 'Custom', auto: 'Auto' };
-      chip.hidden = false;
-      chip.textContent = `⚡ ${names[backend] || backend}`;
-      chip.classList.toggle('ok', !!s.persistent);
-      chip.title = `Provider: ${names[backend] || backend} · storage: ${s.storage || 'unknown'}`;
-    } catch { /* chip stays hidden */ }
+  function renderUserChip() {
+    const chip = $('#user-chip');
+    if (!chip) return;
+    const u = Auth.user;
+    if (!u) { chip.hidden = true; return; }
+    chip.hidden = false;
+    const initials = (u.name || u.email || '?').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+    chip.innerHTML = `
+      ${u.picture ? `<img class="u-avatar" src="${esc(u.picture)}" alt="" referrerpolicy="no-referrer">` : `<span class="u-avatar u-initials">${esc(initials)}</span>`}
+      <span class="u-info"><span class="u-name">${esc(u.name || 'Signed in')}</span>
+      <span class="u-email">${esc(u.email || '')}</span></span>
+      <button class="icon-btn" id="signout-btn" title="Sign out" aria-label="Sign out">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>
+      </button>`;
+    $('#signout-btn').addEventListener('click', () => Auth.signOut());
   }
 
   /* ══════════════════════════════════════════════════════════════════════
@@ -667,7 +699,6 @@
 
       const body = {
         session_id: this.activeId,
-        provider_config: LocalSettings.getProviderConfig(),
       };
       if (prompt != null) body.message = prompt;
 
@@ -767,7 +798,7 @@
         tools: this.liveTools.map((t) => ({ title: t.title, command: t.command, status: t.status, output: [] })),
         time: clock(),
       };
-      if (doneMeta && doneMeta.provider) finalMsg.model = doneMeta.provider;
+      if (doneMeta && doneMeta.model) finalMsg.model = doneMeta.model;
 
       // replace the live bubble with a final one (with actions)
       live.remove();
@@ -788,7 +819,6 @@
       this.ctrl = null;
       this.setSendingUI(false);
       this.liveEl = null;
-      refreshProviderChip();
       this.loadSessions(true); // refresh titles/counts
     },
     stop() {
@@ -1728,22 +1758,22 @@
 
   /* ── Settings ─────────────────────────────────────────────────────── */
   const Settings = {
-    providers: {}, integrations: {}, selected: 'aevibron', autoSelect: true,
-    fieldValues: {}, models: [],
+    integrations: {}, current: {},
   };
   async function loadSettingsView() {
+    // Account pane — who is signed in + AI service status.
+    renderAccountPane();
+    api('/api/llm/status', { silent: true, timeout: 20000 }).then((s) => {
+      const kv = $('#ai-kv');
+      if (!kv) return;
+      const state = s?.ai_service || 'unknown';
+      kv.innerHTML = `<div class="kv"><span class="k">status</span><span class="v" style="color:${state === 'online' ? 'var(--ok)' : 'var(--warn)'}">${esc(state)}</span></div>
+        <div class="kv"><span class="k">model</span><span class="v">${esc(s?.default_model || '(server default)')}</span></div>`;
+    }).catch(() => { const kv = $('#ai-kv'); if (kv) kv.innerHTML = '<div class="empty-state">Status unavailable.</div>'; });
     try {
-      const [prov, cur] = await Promise.all([
-        api('/api/iris/settings/providers', { silent: true }),
-        api('/api/iris/settings', { silent: true }),
-      ]);
-      Settings.providers = (prov && prov.providers) || {};
-      Settings.integrations = (prov && prov.integrations) || {};
-      Settings.selected = (cur && cur.llm_backend) || 'auto';
-      Settings.autoSelect = cur ? cur.auto_select !== false : true;
+      const cur = await api('/api/iris/settings', { silent: true });
       Settings.current = cur || {};
-      renderProviderGrid();
-      renderProviderFields();
+      Settings.integrations = (cur && cur.integrations_schema) || {};
       renderIntegrations();
       const note = $('#storage-note');
       if (cur && cur.storage_warning) {
@@ -1751,139 +1781,35 @@
         note.textContent = cur.storage_warning;
       } else if (cur) {
         note.hidden = false;
-        note.textContent = `Storage: ${cur.storage || 'unknown'} · ${cur.persistent ? 'persistent (database)' : 'ephemeral — the browser keeps a copy in localStorage and sends it with each request.'}`;
+        note.textContent = `Storage: ${cur.storage || 'unknown'} · ${cur.persistent ? 'persistent (database)' : 'temporary (not persisted across restarts)'}`;
       }
     } catch (e) {
-      $('#provider-grid').innerHTML = `<div class="empty-state">Settings unavailable — ${esc(e.message)}</div>`;
+      $('#integrations-grid').innerHTML = `<div class="empty-state">Settings unavailable — ${esc(e.message)}</div>`;
     }
   }
-  function renderProviderGrid() {
-    const grid = $('#provider-grid');
-    const entries = Object.entries(Settings.providers);
-    grid.innerHTML = '';
-    const withAuto = [['auto', { label: 'Auto-select', description: 'First working provider', recommended: true }], ...entries];
-    for (const [id, p] of withAuto) {
-      const saved = Settings.current?.providers?.[id] || {};
-      const card = document.createElement('div');
-      card.className = `provider-card ${Settings.selected === id ? 'selected' : ''}`;
-      card.innerHTML = `<span class="pv-name">${esc(p.label || id)}</span>
-        <span class="pv-state ${saved.configured || id === 'aevibron' || id === 'auto' ? 'on' : ''}">
-          ${saved.configured ? 'configured' : id === 'auto' ? 'probes all' : 'not configured'}</span>`;
-      card.addEventListener('click', () => {
-        Settings.selected = id;
-        $$('.provider-card').forEach((c) => c.classList.remove('selected'));
-        card.classList.add('selected');
-        renderProviderFields();
-      });
-      grid.appendChild(card);
-    }
-  }
-  function renderProviderFields() {
-    const host = $('#provider-fields');
-    const id = Settings.selected;
-    host.innerHTML = '';
-    if (id === 'auto') {
-      host.innerHTML = '<p class="muted" style="font-size:13px">Auto-select probes your configured providers and uses the first working one (Aevibron → Groq → OpenAI → Custom → Ollama). Configure keys below by picking each provider.</p>';
-      return;
-    }
-    const p = Settings.providers[id];
-    if (!p) return;
-    const saved = (Settings.current && Settings.current.providers && Settings.current.providers[id]) || {};
-    for (const f of p.fields || []) {
-      const row = document.createElement('div');
-      row.className = 'pf-row';
-      const savedVal = f.type === 'password' ? '' : (saved[f.name] ?? '');
-      row.innerHTML = `
-        <label class="pf-label">${esc(f.label)}</label>
-        <input class="input" data-pf="${esc(f.name)}" type="${esc(f.type || 'text')}" placeholder="${esc(f.placeholder || '')}" value="${esc(savedVal)}">
-        ${f.hint ? `<span class="pf-hint">${esc(f.hint)}</span>` : ''}`;
-      host.appendChild(row);
-    }
-    $('#auto-select').checked = Settings.autoSelect;
-  }
-  function collectProviderConfig() {
-    const out = {};
-    $$('#provider-fields [data-pf]').forEach((el) => {
-      const v = el.value.trim();
-      if (v) out[el.dataset.pf] = v;
-    });
-    return out;
+  function renderAccountPane() {
+    const host = $('#account-info');
+    if (!host) return;
+    const u = Auth.user;
+    if (!u) { host.innerHTML = '<div class="empty-state">Not signed in.</div>'; return; }
+    const initials = (u.name || u.email || '?').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+    host.innerHTML = `
+      <div class="account-row">
+        ${u.picture ? `<img class="u-avatar lg" src="${esc(u.picture)}" alt="" referrerpolicy="no-referrer">` : `<span class="u-avatar lg u-initials">${esc(initials)}</span>`}
+        <div class="u-info"><span class="u-name">${esc(u.name || 'Signed in')}</span>
+        <span class="u-email">${esc(u.email || '')}</span></div>
+      </div>
+      <p class="muted" style="font-size:12.5px">Your chats, notes and settings are tied to this account and follow you on every device you sign in from.</p>
+      <button class="btn btn-danger" id="account-signout">Sign out</button>`;
+    $('#account-signout').addEventListener('click', () => Auth.signOut());
   }
   function initSettings() {
     $$('.settings-tab').forEach((tab) => tab.addEventListener('click', () => {
       $$('.settings-tab').forEach((c) => c.classList.toggle('active', c === tab));
       $$('.settings-pane').forEach((p) => { p.hidden = p.id !== `settings-${tab.dataset.settingsTab}`; });
       if (tab.dataset.settingsTab === 'system') loadSystemTab();
+      if (tab.dataset.settingsTab === 'account') renderAccountPane();
     }));
-    $('#provider-test').addEventListener('click', async () => {
-      const id = Settings.selected === 'auto' ? 'aevibron' : Settings.selected;
-      const config = collectProviderConfig();
-      const out = $('#provider-result');
-      out.hidden = false;
-      out.textContent = `Testing ${id}…`;
-      const d = await api('/api/iris/settings/test', { method: 'POST', timeout: 45000, body: { provider: id, config, test_prompt: 'Hello' } });
-      if (d && d.success) {
-        const names = (d.models || []).map((m) => m.id || m.name || m).slice(0, 12);
-        out.textContent = `✓ Connected — ${d.model_count || names.length} models\nFirst models: ${names.join(', ')}\nTest reply: ${d.test_response || '(none)'}`;
-        if (d.sanitized) out.textContent += `\n\n⚠ Sanitized input: ${d.sanitized_message || ''}`;
-        toast(`${id} connection OK`, 'success');
-      } else {
-        out.textContent = `✗ ${(d && d.error) || 'test failed'}`;
-        toast((d && d.error) || 'test failed', 'error', id);
-      }
-    });
-    $('#provider-models').addEventListener('click', async () => {
-      const id = Settings.selected === 'auto' ? 'aevibron' : Settings.selected;
-      const config = collectProviderConfig();
-      const out = $('#provider-result');
-      out.hidden = false;
-      out.textContent = `Loading models from ${id}…`;
-      const d = await api('/api/iris/settings/test', { method: 'POST', timeout: 45000, body: { provider: id, config } });
-      if (d && d.success) {
-        Settings.models = d.models || [];
-        out.textContent = `Models (${Settings.models.length}):\n${Settings.models.map((m) => m.id || m.name || m).join('\n')}`;
-        // offer model picker into the model field if present
-        const modelInput = $(`#provider-fields [data-pf="model"]`);
-        if (modelInput && !modelInput.value) {
-          modelInput.placeholder = Settings.models[0] ? (Settings.models[0].id || '') : 'model id';
-        }
-      } else {
-        out.textContent = `✗ ${(d && d.error) || 'could not list models'}`;
-      }
-    });
-    $('#provider-save').addEventListener('click', async () => {
-      const id = Settings.selected;
-      const config = collectProviderConfig();
-      const body = {
-        llm_backend: id,
-        auto_select: $('#auto-select').checked,
-      };
-      if (id !== 'auto' && Object.keys(config).length) body.providers = { [id]: config };
-      const d = await api('/api/iris/settings', { method: 'POST', timeout: 30000, body });
-      const out = $('#provider-result');
-      out.hidden = false;
-      if (d && d.success) {
-        out.textContent = `✓ Saved — storage: ${d.storage || 'unknown'}${d.persistent ? ' (persistent)' : ''}`;
-        toast('Settings saved.', 'success');
-        // mirror into localStorage so chat uses it instantly
-        const mirror = { backend: id };
-        for (const [k, v] of Object.entries(config)) mirror[k] = v;
-        LocalSettings.save(mirror);
-        refreshProviderChip();
-        loadSettingsView();
-      } else if (d && d.ephemeral) {
-        // still mirror locally so the chat works
-        const mirror = { backend: id };
-        for (const [k, v] of Object.entries(config)) mirror[k] = v;
-        LocalSettings.save(mirror);
-        out.textContent = `⚠ ${(d.error || 'Saved to this browser only.')}`;
-        toast(d.error || 'Saved to this browser only.', 'warn');
-        refreshProviderChip();
-      } else {
-        out.textContent = `✗ ${(d && d.error) || 'save failed'}`;
-        toast((d && d.error) || 'save failed', 'error');
-      }
-    });
     $('#integrations-save').addEventListener('click', async () => {
       const integrations = {};
       $$('#integrations-grid [data-ig]').forEach((el) => {
@@ -1893,6 +1819,7 @@
       });
       const d = await api('/api/iris/settings', { method: 'POST', body: { integrations } });
       if (d && d.success) toast('Integrations saved.', 'success');
+      else toast((d && d.error) || 'save failed', 'error');
     });
     $('#system-refresh').addEventListener('click', loadSystemTab);
     $('#models-refresh').addEventListener('click', loadModelsTab);
@@ -1956,11 +1883,8 @@
       }).map(([k, v]) => `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(String(v ?? '–'))}</span></div>`).join('');
       const lk = $('#llm-kv');
       lk.innerHTML = Object.entries({
-        default_backend: llm?.default_backend,
-        default_model: llm?.default_model,
-        fast_model: llm?.fast_model,
-        deep_model: llm?.deep_model,
-        providers: Object.entries(llm?.backends || {}).map(([n, b]) => `${n}${b.configured ? ' ✓' : ' ○'}`).join(', '),
+        ai_service: llm?.ai_service || '–',
+        model: llm?.default_model || '(server default)',
       }).map(([k, v]) => `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(String(v ?? '–'))}</span></div>`).join('');
       const auto = await api('/api/autonomous/status', { silent: true });
       $('#autonomous-badge').textContent = auto && auto.running ? 'running' : 'idle';
@@ -2025,7 +1949,7 @@
     'apps/projects':   { title: 'Projects',   sub: 'Generate real scaffolds', init: initProjects, load: loadProjects },
     'apps/vision':     { title: 'Vision',     sub: 'Live screen & camera · real-time transcription', init: initVision, load: null },
     'apps/phone':      { title: 'Phone',      sub: 'ADB bridge · connect guide · command console', init: initPhone, load: loadPhone },
-    'settings':        { title: 'Settings',   sub: 'Provider · models & scripts · integrations · system', init: initSettings, load: loadSettingsView },
+    'settings':        { title: 'Settings',   sub: 'Account · models & scripts · integrations · system', init: initSettings, load: loadSettingsView },
   };
   const inited = new Set();
   function navigate(route) { location.hash = `#/${route}`; }
@@ -2050,12 +1974,114 @@
   }
   window.addEventListener('hashchange', render);
 
+  /* ══════════════════════════════════════════════════════════════════════
+     SIGN-IN GATE (Google Sign-In)
+     The app stays locked behind the sign-in overlay until a valid session
+     exists. Chat and personal data are tied to the signed-in account.
+     ══════════════════════════════════════════════════════════════════════ */
+  let authConfig = null;
+
+  function waitForGoogle(timeout = 6000) {
+    // The GIS script loads async/defer — poll until window.google appears.
+    return new Promise((resolve) => {
+      const t0 = Date.now();
+      (function check() {
+        if (window.google && window.google.accounts && window.google.accounts.id) return resolve(true);
+        if (Date.now() - t0 > timeout) return resolve(false);
+        setTimeout(check, 150);
+      })();
+    });
+  }
+
+  function showSignIn(expired) {
+    const overlay = $('#signin-overlay');
+    if (!overlay) return;
+    overlay.hidden = false;
+    document.documentElement.classList.add('modal-open');
+    const status = $('#signin-status');
+    if (authConfig && authConfig.sign_in_enabled) {
+      status.textContent = expired ? 'Your session expired — sign in to continue.' : '';
+      status.hidden = !expired;
+      waitForGoogle().then((ok) => {
+        if (!ok) {
+          status.hidden = false;
+          status.textContent = 'Could not load the Google sign-in button — check your connection and reload.';
+          return;
+        }
+        try {
+          window.google.accounts.id.initialize({
+            client_id: authConfig.google_client_id,
+            callback: onGoogleCredential,
+          });
+          window.google.accounts.id.renderButton($('#gsi-button'), {
+            theme: 'outline', size: 'large', width: 320, text: 'continue_with',
+          });
+        } catch (e) {
+          status.hidden = false;
+          status.textContent = `Sign-in button failed: ${e.message}`;
+        }
+      });
+    } else {
+      status.hidden = false;
+      status.textContent = (authConfig && authConfig.reason)
+        || 'Sign-in is not configured on the server yet. Please contact your administrator.';
+    }
+  }
+
+  function hideSignIn() {
+    const overlay = $('#signin-overlay');
+    if (overlay) overlay.hidden = true;
+    document.documentElement.classList.remove('modal-open');
+  }
+
+  async function onGoogleCredential(resp) {
+    const status = $('#signin-status');
+    status.hidden = false;
+    status.textContent = 'Signing you in…';
+    try {
+      const res = await fetch('/api/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: resp.credential }),
+      });
+      const d = await res.json().catch(() => null);
+      if (res.ok && d && d.success && d.token) {
+        Auth.save(d.token);
+        Auth.user = d.user;
+        hideSignIn();
+        startApp();
+        toast(`Welcome, ${d.user && d.user.name ? d.user.name.split(' ')[0] : 'back'}!`, 'success', 'IRIS');
+      } else {
+        status.textContent = (d && d.error) || 'Sign-in failed. Please try again.';
+      }
+    } catch (e) {
+      status.textContent = `Sign-in failed: ${e.message}`;
+    }
+  }
+
+  function startApp() {
+    // First visit lands on chat; a returning hash route is preserved.
+    render();
+    scheduleHealth();
+    renderUserChip();
+  }
+
   /* ── Boot ─────────────────────────────────────────────────────────── */
-  initSidebar();
-  // NOTE: initChat is invoked by render() through the route registry —
-  // calling it here as well would double-bind every listener.
-  render();
-  scheduleHealth();
-  refreshProviderChip();
-  window.IRIS = { Chat, Terminals, Agents, Theme, toast, navigate };
+  (async function boot() {
+    initSidebar();
+    try {
+      authConfig = await api('/api/auth/config', { silent: true, timeout: 15000 });
+    } catch { authConfig = null; }
+    if (!authConfig || !authConfig.sign_in_enabled) {
+      authConfig = authConfig || { sign_in_enabled: false };
+      showSignIn();
+      return;
+    }
+    const ok = await Auth.restore();
+    if (!ok) { showSignIn(); return; }
+    hideSignIn();
+    startApp();
+  })();
+
+  window.IRIS = { Chat, Terminals, Agents, Theme, Auth, toast, navigate };
 })();

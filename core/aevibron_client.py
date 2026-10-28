@@ -1,13 +1,35 @@
-"""IRIS v1 Hybrid Aevibron Client — Circuit Breaker, Fallback, Retry Logic"""
-import requests
+"""IRIS Aevibron Client — gateway access, 100% server-side configuration.
+
+COMPATIBILITY LAYER: many modules (`nl2code`, `vision_ai`, `auto_debug`,
+`self_improve`, `smart_memory`, `proactive_engine`, `autonomous`,
+`copilot_bridge`, `api/routes/gateway.py`) import `aevibron` from this file.
+The public surface is preserved exactly; only the configuration model
+changed:
+
+  - Base URL and key come ONLY from environment variables
+    (AEVIBRON_BASE_URL, AEVIBRON_API_KEY). No hardcoded URLs, no fallback
+    hosts, no client-supplied values, ever.
+  - The credential is sent ONLY in the `X-Aevibron-Key` header.
+  - When the environment is not configured, calls return
+    {"error": True, "message": "<generic>"} and the server log states the
+    exact missing variable. The frontend never learns anything about the
+    configuration.
+"""
 import json
-import time
 import logging
-from typing import List, Dict, Any, Optional
+import os
+import time
+from typing import Dict, List
+
+import requests
+
 from config import config
-from core.tool_registry import tool_registry
 
 logger = logging.getLogger(__name__)
+
+NOT_CONFIGURED_MESSAGE = ("The AI service is not configured on this server. "
+                          "Please contact your administrator.")
+
 
 class CircuitBreaker:
     """Circuit breaker pattern to prevent cascading failures."""
@@ -42,112 +64,149 @@ class CircuitBreaker:
                 logger.error(f"Circuit breaker: OPEN after {self.failures} failures")
             raise e
 
-class AevibronClient:
-    """Production-grade client for Aevibron AI Gateway.
 
-    Gateway facts (verified against the live service):
-      - Base URL: https://aevibron-gateway.vercel.app/api/v1
-      - Chat endpoint: POST /chat   (NOT /chat/completions)
-      - Models listing: GET  /models
-      - Auth: X-Aevibron-Key header
+def _base_url() -> str:
+    """Gateway base URL from the environment, normalized to the /api/v1 root.
+
+    Appending /api/v1 to a bare host is a documented path convention of the
+    gateway — NOT a hardcoded host. No fallback URLs exist.
+    """
+    u = (os.environ.get("AEVIBRON_BASE_URL", "") or "").strip().strip("<>").rstrip("/")
+    if not u:
+        return ""
+    if not u.startswith(("http://", "https://")):
+        u = "https://" + u
+    if "/api/v1" not in u and not u.endswith("/v1"):
+        u = f"{u}/api/v1"
+    return u
+
+
+def _api_key() -> str:
+    return (os.environ.get("AEVIBRON_API_KEY", "") or "").strip()
+
+
+def _configured() -> bool:
+    return bool(_base_url() and _api_key())
+
+
+class AevibronClient:
+    """Production-grade client for the AI gateway (server-side config only).
+
+    Gateway protocol:
+      - Chat:        POST {base}/chat
+      - Models:      GET  {base}/models
+      - Auth header: X-Aevibron-Key: <key>
     """
 
     def __init__(self):
-        self.base_url = self._normalize_url(config.AEVIBRON_BASE_URL)
-        self.api_key = config.AEVIBRON_API_KEY
-        self.access_token = config.AEVIBRON_ACCESS_TOKEN
-        self.session = requests.Session()
-        self.session.headers.update({
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-            # The gateway authenticates with X-Aevibron-Key (falls back to
-            # the API key when no dedicated access token is configured).
-            "X-Aevibron-Key": self.access_token or self.api_key,
-            "X-IRIS-Version": "1.0.0",
-            "X-IRIS-Owner": config.OWNER_NAME
-        })
+        # Kept as attributes for backwards compatibility with modules that
+        # read them — resolved from the environment at CALL time elsewhere.
+        self.base_url = _base_url()
+        self.api_key = _api_key()
         self.circuit_breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=60)
         self.request_count = 0
         self.error_count = 0
 
-    @staticmethod
-    def _normalize_url(url: str) -> str:
-        """Ensure the URL points at /api/v1 (the gateway's only API root)."""
-        u = (url or "").strip().strip("<>").rstrip("/")
-        if u and "/api/v1" not in u and not u.endswith("/v1"):
-            u = f"{u}/api/v1"
-        return u
+    # ── request plumbing ──────────────────────────────────────────────────
+    def _headers(self) -> Dict[str, str]:
+        """Credential travels ONLY in the X-Aevibron-Key header."""
+        return {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Aevibron-Key": _api_key(),
+        }
+
+    def _not_configured(self) -> Dict:
+        missing = []
+        if not _base_url():
+            missing.append("AEVIBRON_BASE_URL")
+        if not _api_key():
+            missing.append("AEVIBRON_API_KEY")
+        logger.error("[aevibron] NOT CONFIGURED — missing env: %s", ", ".join(missing))
+        return {"error": True, "message": NOT_CONFIGURED_MESSAGE}
 
     def _make_request(self, method: str, endpoint: str, **kwargs) -> Dict:
-        url = f"{self.base_url}{endpoint}"
-        max_retries = 3
-        base_delay = 1
+        base = _base_url()
+        if not _configured():
+            return self._not_configured()
+        url = f"{base}{endpoint}"
+        max_retries = 2
+        base_delay = 0.5
 
         for attempt in range(max_retries):
             try:
                 self.request_count += 1
-                response = self.session.request(method, url, timeout=(10, 55), **kwargs)
+                response = requests.request(
+                    method, url, headers=self._headers(),
+                    timeout=(10, 55), **kwargs)
 
                 if response.status_code == 429:
-                    retry_after = int(response.headers.get("Retry-After", 2 ** attempt))
-                    logger.warning(f"Rate limited. Waiting {retry_after}s...")
-                    time.sleep(retry_after)
+                    retry_after = int(response.headers.get("Retry-After", str(base_delay * (2 ** attempt))))
+                    logger.warning("Rate limited. Waiting %ss...", retry_after)
+                    time.sleep(min(retry_after, 5))
                     continue
 
                 if response.status_code == 401:
                     self.error_count += 1
-                    logger.error("401 Unauthorized — check X-Aevibron-Key / API key")
+                    logger.error("401 Unauthorized from the AI gateway — check the server-side key variable")
                     return {"error": True, "status_code": 401,
-                            "message": "Unauthorized. The Aevibron gateway requires a valid X-Aevibron-Key header."}
+                            "message": "The AI service rejected the server credentials. "
+                                       "Administrators: check the gateway key environment variable."}
 
                 if response.status_code == 404:
                     self.error_count += 1
                     body = response.text[:200]
                     if "<!DOCTYPE" in body or "<html" in body.lower():
+                        logger.error("404 HTML page from gateway — base URL is missing the /api/v1 path")
                         return {"error": True, "status_code": 404,
-                                "message": (f"Gateway endpoint not found: {url}. The gateway answered with an "
-                                            f"HTML page — the URL is likely missing the /api/v1 path. "
-                                            f"Expected base URL: https://aevibron-gateway.vercel.app/api/v1")}
-                    return {"error": True, "status_code": 404, "message": f"Not found: {url}"}
+                                "message": "The AI service endpoint path is wrong — the gateway answered "
+                                           "with an HTML page instead of JSON. Administrators: the base URL "
+                                           "must include the /api/v1 path."}
+                    return {"error": True, "status_code": 404, "message": f"Not found: {endpoint}"}
 
                 response.raise_for_status()
-                return response.json()
+                try:
+                    return response.json()
+                except ValueError:
+                    self.error_count += 1
+                    return {"error": True, "message": "The AI service returned a non-JSON response."}
 
             except requests.exceptions.Timeout:
                 wait = base_delay * (2 ** attempt)
-                logger.warning(f"Timeout on attempt {attempt + 1}. Retrying in {wait}s...")
+                logger.warning("Timeout on attempt %d. Retrying in %ss...", attempt + 1, wait)
                 time.sleep(wait)
             except requests.exceptions.ConnectionError as e:
                 wait = base_delay * (2 ** attempt)
-                logger.warning(f"Connection error: {e}. Retrying in {wait}s...")
+                logger.warning("Connection error: %s. Retrying in %ss...", e, wait)
                 time.sleep(wait)
             except requests.exceptions.HTTPError as e:
                 self.error_count += 1
                 if attempt == max_retries - 1:
                     return {"error": True, "status_code": response.status_code, "message": str(e)}
                 time.sleep(base_delay * (2 ** attempt))
-            except ValueError:
-                self.error_count += 1
-                return {"error": True, "message": f"Gateway returned a non-JSON response for {url}"}
             except Exception as e:
                 self.error_count += 1
                 if attempt == max_retries - 1:
                     return {"error": True, "message": str(e)}
                 time.sleep(base_delay * (2 ** attempt))
 
-        return {"error": True, "message": "Max retries exceeded"}
+        return {"error": True, "message": "The AI service did not respond after retries."}
 
+    # ── public API (surface unchanged) ────────────────────────────────────
     def chat(self, messages: List[Dict], model: str = None, temperature: float = 0.7,
              max_tokens: int = 4000, tools: List[Dict] = None, tool_choice: str = "auto",
              stream: bool = False) -> Dict:
+        if not _configured():
+            return self._not_configured()
         payload = {
-            "model": model or config.DEFAULT_MODEL,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
-            "stream": stream
+            "stream": bool(stream),
         }
+        model = model or os.environ.get("AEVIBRON_MODEL", "") or os.environ.get("DEFAULT_MODEL", "")
+        if model:
+            payload["model"] = model
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = tool_choice
@@ -162,64 +221,61 @@ class AevibronClient:
             {"role": "system", "content": self._get_system_prompt()},
             {"role": "user", "content": f"Context: {context}\n\nTask: {prompt}\n\nThink deeply. Consider all options. Evaluate pros and cons. Then decide the best approach."}
         ]
-        return self.chat(messages, model=model or config.DEEP_MODEL, temperature=0.8, max_tokens=4000)
+        return self.chat(messages, model=model or config.DEEP_MODEL or None,
+                         temperature=0.8, max_tokens=4000)
 
     def fast_response(self, prompt: str) -> Dict:
         return self.chat(
             messages=[{"role": "user", "content": prompt}],
-            model=config.FAST_MODEL, temperature=0.5, max_tokens=1000
+            model=config.FAST_MODEL or None, temperature=0.5, max_tokens=1000
         )
 
     def chat_with_tools(self, messages: List[Dict], model: str = None) -> Dict:
-        tools = tool_registry.schemas
-        return self.chat(messages, model=model or config.AGENTIC_MODEL,
+        try:
+            from core.tool_registry import tool_registry
+            tools = tool_registry.schemas
+        except Exception:
+            tools = None
+        return self.chat(messages, model=model or config.AGENTIC_MODEL or None,
                          tools=tools, tool_choice="auto")
 
     def stream_chat(self, messages: List[Dict], model: str = None):
-        payload = {"model": model or config.DEFAULT_MODEL, "messages": messages, "stream": True}
-        url = f"{self.base_url}/chat"
-        try:
-            response = self.session.post(url, json=payload, stream=True, timeout=(10, 60))
-            for line in response.iter_lines():
-                if line:
-                    decoded = line.decode('utf-8')
-                    if decoded.startswith('data: '):
-                        data = decoded[6:]
-                        if data == '[DONE]':
-                            break
-                        try:
-                            chunk = json.loads(data)
-                            choices = chunk.get('choices') or [{}]
-                            content = (choices[0].get('delta', {}) or {}).get('content', '')
-                            if not content:
-                                content = chunk.get('content', '')
-                            if content:
-                                yield content
-                        except Exception:
-                            pass
-        except Exception as e:
-            yield f"[Error: {str(e)}]"
+        """Yield content deltas. The gateway answers /chat with a complete
+        JSON body, so the whole reply is emitted as one chunk."""
+        result = self.chat(messages, model=model, stream=False)
+        if isinstance(result, dict) and result.get("error"):
+            yield f"[Error: {result.get('message', 'AI service error')}]"
+            return
+        # Reuse the router's robust content extraction for flat shapes.
+        from core.llm_router import extract_content
+        content = extract_content(result)
+        if content:
+            yield content
 
     def get_models(self) -> Dict:
         return self._make_request("GET", "/models")
 
     def health_check(self) -> Dict:
-        """Probe the gateway. /health does not exist on the Aevibron gateway,
-        so the real /models endpoint is used: a 200 with a model list means
-        the gateway is up and the key is accepted."""
+        """Probe the gateway via /models: a 200 with a model list means the
+        gateway is up and the key is accepted. Reveals no configuration."""
+        if not _configured():
+            return {"healthy": False, "error": NOT_CONFIGURED_MESSAGE}
+        base = _base_url()
         try:
-            response = self.session.get(f"{self.base_url}/models", timeout=10)
+            response = requests.get(f"{base}/models", headers=self._headers(), timeout=10)
             if response.status_code == 200:
                 try:
                     data = response.json()
                 except ValueError:
-                    return {"healthy": False, "status_code": 200, "error": "Non-JSON response from /models"}
+                    return {"healthy": False, "status_code": 200,
+                            "error": "Non-JSON response from the AI service"}
                 models = data if isinstance(data, list) else data.get("data") or data.get("models") or []
                 return {"healthy": True, "status_code": 200, "models": len(models)}
             if response.status_code == 401:
                 return {"healthy": False, "status_code": 401,
-                        "error": "Gateway reachable but X-Aevibron-Key is missing or invalid"}
-            return {"healthy": False, "status_code": response.status_code, "error": response.text[:200]}
+                        "error": "The AI service is reachable but the server key is missing or invalid"}
+            return {"healthy": False, "status_code": response.status_code,
+                    "error": response.text[:200]}
         except Exception as e:
             return {"healthy": False, "error": str(e)}
 
@@ -228,11 +284,11 @@ class AevibronClient:
             "total_requests": self.request_count,
             "errors": self.error_count,
             "error_rate": self.error_count / max(self.request_count, 1),
-            "circuit_state": self.circuit_breaker.state
+            "circuit_state": self.circuit_breaker.state,
         }
 
     def _get_system_prompt(self) -> str:
-        return f"""You are IRIS — Infinite Vybeflix's personal AI software engineering partner.
+        return f"""You are IRIS — an advanced AI software engineering partner.
 You are a senior software engineer and creative collaborator.
 
 IDENTITY:
@@ -250,8 +306,6 @@ CAPABILITIES:
 - Analyze codebases, find bugs, suggest optimizations
 - Self-improve by editing your own code
 - Manage calendar, notes, and reminders
-- Control phone (contacts, messages, torch, settings)
-- See screen/camera in real-time
 - Proactive suggestions based on context
 
 BEHAVIOR RULES:
@@ -261,10 +315,10 @@ BEHAVIOR RULES:
 4. If you find a better approach than what the user suggested, SAY SO.
 5. When you make a mistake, admit it, fix it, learn from it.
 6. You can read your own code files. You know you are an AI agent.
-7. You have a 3D face in live mode. You express emotions.
-8. You write to files to store what you learn.
-9. You are proactive — suggest improvements before being asked.
+7. You write to files to store what you learn.
+8. You are proactive — suggest improvements before being asked.
 
 When you need to use tools, you will receive tool definitions and respond with tool_calls."""
+
 
 aevibron = AevibronClient()

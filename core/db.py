@@ -311,14 +311,41 @@ class Database:
         """)
 
         # Chat sessions — one row per conversation (chat history feature).
+        # user_id scopes sessions to a signed-in account (Google Sign-In) so
+        # chats follow the user across devices. NULL = legacy/anonymous row.
         self._execute(f"""
             CREATE TABLE IF NOT EXISTS chat_sessions (
                 session_id TEXT PRIMARY KEY,
+                user_id TEXT,
                 title TEXT DEFAULT 'New chat',
                 created_at {ts} DEFAULT {now},
                 updated_at {ts} DEFAULT {now}
             )
         """)
+        # Users — Google Sign-In accounts (portable identity: chats and
+        # settings follow the account, accessible from any device).
+        self._execute(f"""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id TEXT PRIMARY KEY,
+                email TEXT UNIQUE,
+                name TEXT,
+                picture TEXT,
+                google_sub TEXT,
+                created_at {ts} DEFAULT {now},
+                last_login {ts} DEFAULT {now}
+            )
+        """)
+        # Migrate existing deployments: CREATE TABLE IF NOT EXISTS does not
+        # alter an existing table, so add missing columns explicitly (runs
+        # on every boot; fails silently once the column exists).
+        try:
+            self._execute("ALTER TABLE chat_sessions ADD COLUMN user_id TEXT")
+        except Exception:
+            pass
+        try:
+            self._execute("ALTER TABLE users ADD COLUMN google_sub TEXT")
+        except Exception:
+            pass
         # Index for fast "list sessions by recent activity"
         try:
             self._execute(f"CREATE INDEX IF NOT EXISTS idx_messages_session ON messages (session_id, timestamp)")
@@ -378,40 +405,52 @@ class Database:
         )
 
     # === CHAT SESSIONS (chat history) ===
-    def create_chat_session(self, session_id: str, title: str = "New chat") -> Dict:
+    def create_chat_session(self, session_id: str, title: str = "New chat",
+                            user_id: Optional[str] = None) -> Dict:
         ph = "%s" if self.use_postgres else "?"
         now = datetime.now().isoformat()
         if self.use_postgres:
             self._execute(
-                f"INSERT INTO chat_sessions (session_id, title, created_at, updated_at) VALUES ({ph}, {ph}, {ph}, {ph}) "
-                f"ON CONFLICT (session_id) DO UPDATE SET updated_at = excluded.updated_at",
-                (session_id, title, now, now)
+                f"INSERT INTO chat_sessions (session_id, user_id, title, created_at, updated_at) VALUES ({ph}, {ph}, {ph}, {ph}, {ph}) "
+                f"ON CONFLICT (session_id) DO UPDATE SET updated_at = excluded.updated_at, "
+                f"user_id = COALESCE(chat_sessions.user_id, excluded.user_id)",
+                (session_id, user_id, title, now, now)
             )
         else:
             self._execute(
-                f"INSERT OR REPLACE INTO chat_sessions (session_id, title, created_at, updated_at) VALUES ({ph}, {ph}, {ph}, {ph})",
-                (session_id, title, now, now)
+                f"INSERT OR REPLACE INTO chat_sessions (session_id, user_id, title, created_at, updated_at) VALUES ({ph}, {ph}, {ph}, {ph}, {ph})",
+                (session_id, user_id, title, now, now)
             )
-        return {"session_id": session_id, "title": title, "created_at": now}
+        return {"session_id": session_id, "title": title, "created_at": now, "user_id": user_id}
 
-    def list_chat_sessions(self) -> List[Dict]:
-        """All chat sessions, most recently active first, with message counts
-        and a preview of the last message."""
+    def list_chat_sessions(self, user_id: Optional[str] = None) -> List[Dict]:
+        """Chat sessions (most recently active first) with message counts and
+        a preview of the last message. When user_id is given, only that
+        user's sessions are returned — the per-account chat history that
+        follows a signed-in user across devices."""
         pg = self.use_postgres
         ph = "%s" if pg else "?"
+        params: tuple = ()
+        where = ""
+        if user_id is not None:
+            where = f"WHERE s.user_id = {ph}"
+            params = (user_id,)
         try:
-            rows = self._fetchall("""
+            rows = self._fetchall(f"""
                 SELECT s.session_id, s.title, s.created_at, s.updated_at,
                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.session_id) AS message_count,
                        (SELECT m.content FROM messages m WHERE m.session_id = s.session_id
                          ORDER BY m.timestamp DESC LIMIT 1) AS last_message
                 FROM chat_sessions s
+                {where}
                 ORDER BY s.updated_at DESC
                 LIMIT 200
-            """)
+            """, params)
         except Exception as e:
             logger.warning(f"list_chat_sessions join failed: {e}")
-            rows = self._fetchall("SELECT session_id, title, created_at, updated_at FROM chat_sessions ORDER BY updated_at DESC LIMIT 200")
+            rows = self._fetchall(
+                f"SELECT session_id, title, created_at, updated_at FROM chat_sessions {where} ORDER BY updated_at DESC LIMIT 200",
+                params)
             for r in rows:
                 r["message_count"] = 0
                 r["last_message"] = None
@@ -420,6 +459,41 @@ class Database:
     def get_chat_session(self, session_id: str) -> Optional[Dict]:
         ph = "%s" if self.use_postgres else "?"
         return self._fetchone(f"SELECT * FROM chat_sessions WHERE session_id = {ph}", (session_id,))
+
+    # === USERS (Google Sign-In accounts — the portable identity) ===
+    def upsert_user(self, profile: Dict[str, Any]) -> Dict[str, Any]:
+        """Create or refresh a user row from a VERIFIED Google profile.
+        user_id is derived from Google's stable subject id (never the email,
+        which can change)."""
+        ph = "%s" if self.use_postgres else "?"
+        sub = profile.get("sub") or ""
+        user_id = f"g_{sub}" if sub else f"e_{(profile.get('email') or '').lower()}"
+        email = (profile.get("email") or "").lower()
+        now = datetime.now().isoformat()
+        if self.use_postgres:
+            self._execute(
+                f"""INSERT INTO users (user_id, email, name, picture, google_sub, created_at, last_login)
+                    VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        email = excluded.email, name = excluded.name,
+                        picture = excluded.picture, last_login = excluded.last_login""",
+                (user_id, email, profile.get("name") or "", profile.get("picture") or "",
+                 sub, now, now)
+            )
+        else:
+            self._execute(
+                f"""INSERT OR REPLACE INTO users (user_id, email, name, picture, google_sub, created_at, last_login)
+                    VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})""",
+                (user_id, email, profile.get("name") or "", profile.get("picture") or "",
+                 sub, now, now)
+            )
+        row = self._fetchone(f"SELECT * FROM users WHERE user_id = {ph}", (user_id,))
+        return row or {"user_id": user_id, "email": email,
+                       "name": profile.get("name") or "", "picture": profile.get("picture") or ""}
+
+    def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
+        ph = "%s" if self.use_postgres else "?"
+        return self._fetchone(f"SELECT * FROM users WHERE user_id = {ph}", (user_id,))
 
     def rename_chat_session(self, session_id: str, title: str) -> bool:
         ph = "%s" if self.use_postgres else "?"
